@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(grep -viE \"^\\(app|components|lib|node_modules|public|\\\\.next\\)$\")"
     ]
   }
 }
