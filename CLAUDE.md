@@ -50,3 +50,14 @@ maps CSS custom properties to utility classes automatically.
 ## Out of Scope (do not build or suggest)
 Job queues, real-time subscriptions, native mobile, custom report builder,
 SSO/SAML, resource capacity, budget tracking, Gantt charts, multi-portfolio hierarchy.
+
+## Reference Documents
+- docs/architecture.md — system architecture, data model, multi-tenancy 
+  pattern, all key decisions
+- docs/ui-context.md — the six load-bearing UI component patterns, color 
+  rules, microcopy guide
+- supabase/migrations/ — all schema changes; review before writing any 
+  new tables
+
+Always read docs/architecture.md before writing database schema, 
+API routes, or Supabase queries.
