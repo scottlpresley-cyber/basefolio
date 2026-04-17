@@ -2,7 +2,19 @@
   "permissions": {
     "allow": [
       "Bash(npx tsc *)",
-      "Bash(grep -viE \"^\\(app|components|lib|node_modules|public|\\\\.next\\)$\")"
+      "Bash(grep -viE \"^\\(app|components|lib|node_modules|public|\\\\.next\\)$\")",
+      "Bash(supabase --version)",
+      "Bash(supabase projects *)",
+      "Bash(npx supabase *)",
+      "Bash(npm install *)",
+      "Bash(npm audit *)",
+      "Bash(mkdir -p types)",
+      "Bash(rm -f supabase/.tmp_verify.sql)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(npx tsx *)",
+      "Bash(node -e \"const {readFileSync} = require\\('fs'\\); const c = readFileSync\\('.env.local', 'utf8'\\); console.log\\(c.split\\(/\\\\r?\\\\n/\\).find\\(l => l.startsWith\\('ANTHROPIC'\\)\\)\\);\")",
+      "Bash(node -e \"process.env.FOO=''; console.log\\('FOO in env:', 'FOO' in process.env, 'val:', JSON.stringify\\(process.env.FOO\\)\\);\")",
+      "Bash(node -e ' *)"
     ]
   }
 }
