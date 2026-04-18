@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import type { ColumnMap } from "@/lib/file-processing/types";
 
 type Phase = "streaming" | "complete" | "error";
+
+type ImportResult = { imported: number; skipped: number };
 
 type Props = {
   storageKey: string;
@@ -28,13 +29,13 @@ export function ReportStream({
   onStartOver,
 }: Props) {
   const { toast } = useToast();
-  const router = useRouter();
   const [phase, setPhase] = useState<Phase>("streaming");
   const [narrative, setNarrative] = useState("");
   const [reportId, setReportId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [isImporting, setIsImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -155,23 +156,16 @@ export function ReportStream({
         toast(json?.error ?? "We couldn't import these projects. Try again.");
         return;
       }
-      const imported = json.imported ?? 0;
-      const skipped = json.skipped ?? 0;
-      if (imported === 0 && skipped > 0) {
-        toast("Already imported. Redirecting...");
-        setTimeout(() => router.push("/projects"), 1000);
-        return;
-      }
-      toast(
-        imported === 1 ? "1 project imported." : `${imported} projects imported.`,
-      );
-      router.push("/projects");
+      setImportResult({
+        imported: json.imported ?? 0,
+        skipped: json.skipped ?? 0,
+      });
     } catch {
       toast("We couldn't reach the server. Check your connection and try again.");
     } finally {
       setIsImporting(false);
     }
-  }, [reportId, router, toast]);
+  }, [reportId, toast]);
 
   return (
     <div className="bg-surface border border-border rounded-md p-6">
@@ -211,33 +205,57 @@ export function ReportStream({
         </div>
       )}
 
-      <div className="mt-6 flex items-center gap-3 flex-wrap">
-        {phase === "complete" && (
-          <>
-            <Button variant="default" onClick={handleCopy}>
+      {phase === "complete" && importResult ? (
+        <div className="mt-6 space-y-4">
+          <div className="rounded-md border border-border bg-surface-hover px-4 py-3">
+            <p className="text-sm font-medium text-text-primary">
+              {importSuccessHeadline(importResult)}
+            </p>
+            <p className="text-xs text-text-muted mt-1">
+              Your projects will appear in the Projects tab when it's ready.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button variant="outline" onClick={handleCopy}>
               Copy to clipboard
             </Button>
             <Button variant="outline" onClick={handleDownload}>
               Download as Markdown
             </Button>
-            <Button
-              variant="outline"
-              onClick={handleImport}
-              disabled={isImporting || !reportId}
-            >
-              Import to Basefolio
+            <Button variant="ghost" onClick={onStartOver}>
+              Start over
             </Button>
-          </>
-        )}
-        {phase === "error" && (
-          <Button variant="default" onClick={handleRetry}>
-            Try again
+          </div>
+        </div>
+      ) : (
+        <div className="mt-6 flex items-center gap-3 flex-wrap">
+          {phase === "complete" && (
+            <>
+              <Button variant="default" onClick={handleCopy}>
+                Copy to clipboard
+              </Button>
+              <Button variant="outline" onClick={handleDownload}>
+                Download as Markdown
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleImport}
+                disabled={isImporting || !reportId}
+              >
+                Import to Basefolio
+              </Button>
+            </>
+          )}
+          {phase === "error" && (
+            <Button variant="default" onClick={handleRetry}>
+              Try again
+            </Button>
+          )}
+          <Button variant="ghost" onClick={onStartOver}>
+            Start over
           </Button>
-        )}
-        <Button variant="ghost" onClick={onStartOver}>
-          Start over
-        </Button>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -246,4 +264,15 @@ function toMarkdownFilename(original: string): string {
   const base = original.replace(/\.[^.]+$/, "") || "status-report";
   const safe = base.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
   return `${safe}-status-report.md`;
+}
+
+function importSuccessHeadline(result: ImportResult): string {
+  const { imported, skipped } = result;
+  if (imported === 0 && skipped > 0) {
+    return skipped === 1
+      ? "Already imported — the 1 project from this report is already in Basefolio."
+      : `Already imported — the ${skipped} projects from this report are already in Basefolio.`;
+  }
+  if (imported === 1) return "1 project imported to Basefolio.";
+  return `${imported} projects imported to Basefolio.`;
 }

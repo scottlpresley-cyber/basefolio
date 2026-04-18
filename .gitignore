@@ -45,3 +45,5 @@ next-env.d.ts
 
 # Local curl-test artifacts (narrative outputs written by scripts/curl-*-test.mjs)
 /generated-*.md
+
+.vercel
