@@ -39,6 +39,156 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_usage_events: {
+        Row: {
+          cost_usd: number | null
+          created_at: string
+          event_type: string
+          id: string
+          model: string | null
+          organization_id: string
+          tokens_in: number | null
+          tokens_out: number | null
+          user_id: string | null
+        }
+        Insert: {
+          cost_usd?: number | null
+          created_at?: string
+          event_type: string
+          id?: string
+          model?: string | null
+          organization_id: string
+          tokens_in?: number | null
+          tokens_out?: number | null
+          user_id?: string | null
+        }
+        Update: {
+          cost_usd?: number | null
+          created_at?: string
+          event_type?: string
+          id?: string
+          model?: string | null
+          organization_id?: string
+          tokens_in?: number | null
+          tokens_out?: number | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_usage_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_usage_events_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audit_log: {
+        Row: {
+          action: string
+          created_at: string
+          entity_id: string | null
+          entity_type: string | null
+          id: string
+          new_value: Json | null
+          old_value: Json | null
+          organization_id: string
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+          organization_id: string
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+          organization_id?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_log_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audit_log_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      milestones: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          due_date: string | null
+          id: string
+          name: string
+          organization_id: string
+          project_id: string
+          status: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          name: string
+          organization_id: string
+          project_id: string
+          status?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          name?: string
+          organization_id?: string
+          project_id?: string
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "milestones_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "milestones_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organizations: {
         Row: {
           created_at: string
@@ -77,6 +227,76 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      project_updates: {
+        Row: {
+          accomplishments: string | null
+          ai_risk_flags: Json | null
+          author_id: string | null
+          blockers: string | null
+          created_at: string
+          health: string
+          id: string
+          next_steps: string | null
+          organization_id: string
+          period_end: string | null
+          period_start: string | null
+          project_id: string
+          summary: string
+        }
+        Insert: {
+          accomplishments?: string | null
+          ai_risk_flags?: Json | null
+          author_id?: string | null
+          blockers?: string | null
+          created_at?: string
+          health: string
+          id?: string
+          next_steps?: string | null
+          organization_id: string
+          period_end?: string | null
+          period_start?: string | null
+          project_id: string
+          summary: string
+        }
+        Update: {
+          accomplishments?: string | null
+          ai_risk_flags?: Json | null
+          author_id?: string | null
+          blockers?: string | null
+          created_at?: string
+          health?: string
+          id?: string
+          next_steps?: string | null
+          organization_id?: string
+          period_end?: string | null
+          period_start?: string | null
+          project_id?: string
+          summary?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_updates_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_updates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_updates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       projects: {
         Row: {
@@ -159,6 +379,64 @@ export type Database = {
             columns: ["source_report_id"]
             isOneToOne: false
             referencedRelation: "status_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      risks: {
+        Row: {
+          created_at: string
+          description: string
+          id: string
+          impact: string | null
+          organization_id: string
+          owner_id: string | null
+          probability: string | null
+          project_id: string
+          status: string | null
+        }
+        Insert: {
+          created_at?: string
+          description: string
+          id?: string
+          impact?: string | null
+          organization_id: string
+          owner_id?: string | null
+          probability?: string | null
+          project_id: string
+          status?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          id?: string
+          impact?: string | null
+          organization_id?: string
+          owner_id?: string | null
+          probability?: string | null
+          project_id?: string
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "risks_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "risks_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "risks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]
