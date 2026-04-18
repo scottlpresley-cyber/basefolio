@@ -8,6 +8,7 @@ import {
   Inbox,
   LayoutDashboard,
   Settings,
+  UploadCloud,
   type LucideIcon,
 } from "lucide-react";
 
@@ -19,6 +20,7 @@ type NavItem = {
 
 const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Status Draft", href: "/status-draft", icon: UploadCloud },
   { label: "Projects", href: "/projects", icon: FolderKanban },
   { label: "Intake", href: "/intake", icon: Inbox },
   { label: "Reports", href: "/reports", icon: FileText },

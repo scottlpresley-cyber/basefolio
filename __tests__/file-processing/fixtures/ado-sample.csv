@@ -1,0 +1,16 @@
+Title,State,Assigned To,Work Item Type,Area Path,Iteration Path,Tags,Target Date,Story Points
+Set up CI pipeline,Done,Alice Smith,Task,Platform\Infra,Platform\Sprint 1,infra,2026-03-01,5
+Provision staging env,Done,Alice Smith,Task,Platform\Infra,Platform\Sprint 1,infra,2026-03-05,3
+Fix auth redirect loop,Blocked,Bob Jones,Bug,Platform\Infra,Platform\Sprint 2,auth,2026-04-10,2
+Upgrade Node runtime,Blocked,Alice Smith,Task,Platform\Infra,Platform\Sprint 2,infra,2026-04-12,5
+Design dashboard wireframe,Done,Carol Lee,Task,Web\Dashboard,Web\Sprint 1,design,2026-03-10,3
+Implement dashboard shell,Active,Carol Lee,Task,Web\Dashboard,Web\Sprint 2,frontend,2026-04-20,5
+Add project list view,Active,Carol Lee,Task,Web\Dashboard,Web\Sprint 2,frontend,2026-04-25,3
+Add project detail view,New,Dan Brown,Task,Web\Dashboard,Web\Sprint 3,frontend,2026-05-05,5
+Draft PRD for onboarding,Done,Eve White,Task,Product\Onboarding,Product\Sprint 1,product,2026-03-08,2
+Build onboarding flow,Active,Eve White,Task,Product\Onboarding,Product\Sprint 2,frontend,2026-04-30,5
+Set up analytics events,New,Dan Brown,Task,Product\Onboarding,Product\Sprint 3,analytics,2026-05-10,3
+Import CSV parser,Done,Alice Smith,Task,Platform\Ingest,Platform\Sprint 1,backend,2026-03-15,5
+Column inference logic,Active,Alice Smith,Task,Platform\Ingest,Platform\Sprint 2,backend,2026-04-28,8
+Status draft endpoint,New,Bob Jones,Task,Platform\Ingest,Platform\Sprint 3,backend,2026-05-15,5
+Write ingest integration tests,New,Bob Jones,Task,Platform\Ingest,Platform\Sprint 3,backend,2026-05-20,3

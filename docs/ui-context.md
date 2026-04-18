@@ -123,8 +123,9 @@ Button padding:      px-4 py-2 (standard) | px-3 py-1.5 (compact)
 
 ---
 
-## 5. The Six Load-Bearing Patterns
+## 5. The Nine Load-Bearing Patterns
 
+Patterns 1-6 below; Patterns 7-9 in Section 8.
 These patterns appear on nearly every page. Get these right and the product looks right.
 
 ---
@@ -509,5 +510,124 @@ Generated code should never include these patterns.
 
 ---
 
-*Last updated: April 15, 2026*
+## 8. Patterns from the Build
+
+Patterns established during Sprint 1. Same load-bearing status as §5 — use these wherever the pattern applies.
+
+---
+
+### Pattern 7: Streaming AI Narrative Container
+
+Canonical container for any AI-generated text block: Status Draft narrative today; weekly portfolio summaries, intake categorization reasoning, and risk-flag explanations later. The left teal border is the §2 AI signal applied to long-form content; the prose classes scope typography to Basefolio tokens so it doesn't render as generic Tailwind Typography.
+
+```tsx
+// While streaming: header row with a blinking teal cursor.
+<span className="text-xs text-teal font-medium inline-flex items-center gap-1" aria-live="polite">
+  Drafting your report
+  <span className="inline-block animate-pulse">▍</span>
+</span>
+
+// Narrative body — same classes whether streaming or complete.
+<div className="mt-4 border-l-2 border-teal pl-6
+                prose prose-sm max-w-none text-text-primary
+                prose-headings:text-text-primary prose-headings:font-semibold
+                prose-strong:text-text-primary prose-p:text-text-secondary">
+  <ReactMarkdown>{narrative}</ReactMarkdown>
+</div>
+```
+
+Rules:
+- Teal left border is non-negotiable. No background color — the border alone carries the AI signal.
+- Streaming indicator disappears on completion; action buttons (Copy, Download, Import) reveal in its place.
+- ▍ is a literal cursor character, not an `<i>` icon and not a spinner.
+- Use `prose-sm`, not `prose-base`. Dashboard density, not article density.
+- Error state replaces the narrative block with a banner using `border border-health-red bg-health-red-bg text-health-red` — a streaming failure is a failure-state, reusing the §2 health palette is correct.
+
+---
+
+### Pattern 8: Column Mapping Panel
+
+Shown after a parsed file upload, before running the AI pipeline. Today: Status Draft. Later: any spreadsheet-driven ingestion (intake imports, risk registers from external trackers).
+
+```tsx
+<div className="bg-surface border border-border rounded-md">
+  {/* Top bar — monochrome source badge + filename + row count */}
+  <div className="px-5 py-4 border-b border-border flex flex-wrap items-center gap-3">
+    <span className="inline-flex items-center bg-gray-light border border-border
+                     text-text-secondary rounded px-2 py-0.5 text-xs font-medium">
+      Azure DevOps
+    </span>
+    <span className="text-sm font-medium text-text-primary truncate">ado-sample.csv</span>
+    <span className="text-sm text-text-muted">· 17 rows</span>
+  </div>
+
+  <p className="px-5 pt-4 text-xs text-text-muted">We're 94% confident about the detected columns.</p>
+
+  {/* Mapping grid — 2 cols desktop, 1 col mobile */}
+  <div className="px-5 py-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div>
+      <label className="text-sm font-medium text-text-secondary block mb-1.5">
+        Title <span className="text-text-muted font-normal">(required)</span>
+      </label>
+      <select className="w-full px-3 py-2 text-sm text-text-primary bg-surface
+                         border border-border rounded focus:outline-none
+                         focus:ring-2 focus:ring-teal/30 focus:border-teal">…</select>
+      <p className="text-xs text-health-red mt-1">Required — pick a column.</p>
+    </div>
+  </div>
+
+  {/* Preview — CSS grid with dynamic column count via inline style */}
+  <div className="mx-5 mb-4 border border-border rounded overflow-x-auto">
+    <div className="grid bg-gray-light border-b border-border"
+         style={{ gridTemplateColumns: `repeat(${headers.length}, minmax(140px, 1fr))` }}>
+      {/* Header cells: px-3 py-2 text-xs font-medium text-text-muted uppercase tracking-wide */}
+    </div>
+    <div className="max-h-[220px] overflow-y-auto">
+      {/* Data cells: px-3 py-2 font-mono text-xs text-text-secondary truncate */}
+    </div>
+  </div>
+
+  <div className="px-5 py-4 border-t border-border flex items-center justify-between">
+    <Button variant="ghost">Start over</Button>
+    <Button variant="default" disabled={!canContinue}>Looks good — continue</Button>
+  </div>
+</div>
+```
+
+Rules:
+- **Source badge is monochrome** (`bg-gray-light`, not teal). Tool provenance is metadata, not an AI signal.
+- **Headers are single-use.** Assigning a spreadsheet column to one canonical field deletes any prior assignment. This is a data-model decision, not just UI convenience — the downstream parser assumes one-column-to-one-field.
+- Preview cells use `font-mono text-xs` so malformed dates, trailing spaces, and NaN stand out.
+- Continue button stays disabled (not hidden) when required fields are unmet; its `title` attribute explains why.
+- No "Auto-detect" or "Re-detect" button. The user's confirmed mapping is final.
+
+---
+
+### Pattern 9: Toast Usage Conventions
+
+**Scope.** `<ToastProvider>` wraps the `(app)` route group layout — authenticated pages only. Public pages (`/login`, `/signup`, marketing) do not have it. Intentional: pre-auth feedback is inline form errors, not toasts.
+
+**Behavior.**
+- One toast visible at a time. A new toast replaces the current one; no stacks, no queues.
+- 4-second auto-dismiss. No close button.
+- Bottom-right, `aria-live="polite"` so screen readers get it without interrupting.
+
+**Use for:**
+- Ephemeral confirmations: `"Project saved."`, `"5 projects imported."`, `"Report copied to clipboard."`
+- Non-blocking errors the user can retry: `"Copy failed. Select the text and copy manually."`, `"We couldn't reach the server. Check your connection and try again."`
+
+**Do not use for:**
+- Form validation → inline error under the field.
+- Destructive confirms ("Delete this project?") → modal.
+- Anything the user must act on or cannot afford to miss → banner, inline message, or modal.
+- Long-running progress → streaming UI (Pattern 7) or a dedicated status row.
+
+**Copy (see also §6).**
+- Past tense for confirmations: `"Status update saved."` not `"Saving status update."`
+- Specific count when you have one: `"5 projects imported."` not `"Projects imported."`
+- Never `"Success!"`, never `"Done."`, never a trailing exclamation.
+
+---
+
+*Last updated: April 17, 2026*
 *Owned by: Scott Presley — update when a new pattern is established, not before.*

@@ -92,6 +92,7 @@ export type Database = {
           phase: string | null
           priority_score: number | null
           source: string | null
+          source_report_id: string | null
           start_date: string | null
           status: string
           tags: string[] | null
@@ -111,6 +112,7 @@ export type Database = {
           phase?: string | null
           priority_score?: number | null
           source?: string | null
+          source_report_id?: string | null
           start_date?: string | null
           status?: string
           tags?: string[] | null
@@ -130,6 +132,7 @@ export type Database = {
           phase?: string | null
           priority_score?: number | null
           source?: string | null
+          source_report_id?: string | null
           start_date?: string | null
           status?: string
           tags?: string[] | null
@@ -149,6 +152,13 @@ export type Database = {
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_source_report_id_fkey"
+            columns: ["source_report_id"]
+            isOneToOne: false
+            referencedRelation: "status_reports"
             referencedColumns: ["id"]
           },
         ]

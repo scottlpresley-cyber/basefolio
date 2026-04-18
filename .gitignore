@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Claude Code per-machine config
+.claude/settings.local.json
+
+# Local curl-test artifacts (narrative outputs written by scripts/curl-*-test.mjs)
+/generated-*.md

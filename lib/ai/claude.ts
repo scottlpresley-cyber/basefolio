@@ -1,13 +1,19 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream'
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  throw new Error(
-    'ANTHROPIC_API_KEY is not set. Add it to .env.local (see docs/basefolio-architecture-v1.md section 12).'
-  )
-}
+let _client: Anthropic | null = null
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+function getClient(): Anthropic {
+  if (_client) return _client
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) {
+    throw new Error(
+      'ANTHROPIC_API_KEY is not set. Add it to .env.local (see docs/basefolio-architecture-v1.md section 12).',
+    )
+  }
+  _client = new Anthropic({ apiKey })
+  return _client
+}
 
 export type AIModel = 'narrative' | 'classify'
 
@@ -54,14 +60,14 @@ export async function callClaude(
   const modelId = MODEL_MAP[model]
   try {
     if (stream) {
-      return client.messages.stream({
+      return getClient().messages.stream({
         model: modelId,
         max_tokens: maxTokens,
         system,
         messages: [{ role: 'user', content: prompt }],
       })
     }
-    return await client.messages.create({
+    return await getClient().messages.create({
       model: modelId,
       max_tokens: maxTokens,
       system,

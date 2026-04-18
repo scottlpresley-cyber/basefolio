@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/app/sidebar";
+import { ToastProvider } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function AppLayout({
@@ -22,9 +23,11 @@ export default async function AppLayout({
       : null;
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <Sidebar user={{ email: user.email ?? "", name: metadataName }} />
-      <main className="flex-1 min-w-0">{children}</main>
-    </div>
+    <ToastProvider>
+      <div className="flex min-h-screen bg-background">
+        <Sidebar user={{ email: user.email ?? "", name: metadataName }} />
+        <main className="flex-1 min-w-0">{children}</main>
+      </div>
+    </ToastProvider>
   );
 }
