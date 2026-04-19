@@ -354,7 +354,17 @@ describe('updateProjectHealth', () => {
       data: { id: 'proj-1', health: 'red', organization_id: 'org-1', name: 'demo' },
       error: null,
     })
-    const auditQ = makeQuery({ data: { id: 'audit-1' }, error: null })
+    const auditQ = makeQuery({
+      data: {
+        id: 'audit-1',
+        action: 'project.health_changed',
+        old_value: { health: 'green' },
+        new_value: { health: 'red' },
+        created_at: '2026-04-19T12:00:00Z',
+        actor: { full_name: 'Scott Presley', email: 'scott@example.com' },
+      },
+      error: null,
+    })
 
     const from = vi
       .fn()
@@ -376,7 +386,9 @@ describe('updateProjectHealth', () => {
     expect(updateQ.update).toHaveBeenCalledWith({ health: 'red' })
     expect(updateQ.eq).toHaveBeenCalledWith('id', 'proj-1')
 
-    // Third from: audit_log insert — verify full payload shape
+    // Third from: audit_log insert — verify full payload shape + that
+    // the select asks for the actor join so the returned audit entry
+    // can be rendered directly in an Activity panel.
     expect(from).toHaveBeenNthCalledWith(3, 'audit_log')
     expect(auditQ.insert).toHaveBeenCalledWith({
       organization_id: 'org-1',
@@ -387,10 +399,20 @@ describe('updateProjectHealth', () => {
       old_value: { health: 'green' },
       new_value: { health: 'red' },
     })
+    expect(auditQ.select).toHaveBeenCalledWith(
+      'id, action, old_value, new_value, created_at, actor:users!audit_log_user_id_fkey(full_name, email)',
+    )
 
     expect(result).toEqual({
       project: { id: 'proj-1', health: 'red', organization_id: 'org-1', name: 'demo' },
-      auditLogId: 'audit-1',
+      auditEntry: {
+        id: 'audit-1',
+        action: 'project.health_changed',
+        actor_name: 'Scott Presley',
+        old_value: { health: 'green' },
+        new_value: { health: 'red' },
+        created_at: '2026-04-19T12:00:00Z',
+      },
     })
   })
 

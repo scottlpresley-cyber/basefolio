@@ -8,7 +8,12 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database.types'
-import type { Project, ProjectStatus, ProjectUpdate } from '@/types/app.types'
+import type {
+  Project,
+  ProjectAuditEntry,
+  ProjectStatus,
+  ProjectUpdate,
+} from '@/types/app.types'
 import { displayName } from '@/lib/users/display'
 
 type Client = SupabaseClient<Database>
@@ -144,6 +149,53 @@ export async function listProjectUpdates(
     return {
       ...(rest as ProjectUpdate),
       author_name: author ? displayName(author) : null,
+    }
+  })
+}
+
+// Returns audit_log entries scoped to a single project, newest first,
+// with the actor's display name resolved through the users join. The
+// sidebar's Activity panel reads this; other surfaces (audit export,
+// activity feed across projects) can reuse the helper.
+//
+// Defaults:
+//   - actions: ['project.health_changed'] — today only health changes
+//     are audited. When future mutation types start writing audit rows
+//     (e.g. 'project.owner_changed') the default should grow, or
+//     callers can pass an explicit list.
+//   - limit: 5 — matches the sidebar's display budget.
+export async function listProjectAuditLog(
+  client: Client,
+  projectId: string,
+  opts?: { limit?: number; actions?: string[] },
+): Promise<ProjectAuditEntry[]> {
+  const limit = opts?.limit ?? 5
+  const actions = opts?.actions ?? ['project.health_changed']
+
+  const { data, error } = await client
+    .from('audit_log')
+    .select(
+      'id, action, old_value, new_value, created_at, actor:users!audit_log_user_id_fkey(full_name, email)',
+    )
+    .eq('entity_type', 'project')
+    .eq('entity_id', projectId)
+    .in('action', actions)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  if (!data) return []
+
+  return data.map((row) => {
+    const { actor, ...rest } = row as typeof row & {
+      actor: { full_name: string | null; email: string } | null
+    }
+    return {
+      id: rest.id as string,
+      action: rest.action as string,
+      actor_name: actor ? displayName(actor) : null,
+      old_value: (rest.old_value ?? null) as Record<string, unknown> | null,
+      new_value: (rest.new_value ?? null) as Record<string, unknown> | null,
+      created_at: rest.created_at as string,
     }
   })
 }

@@ -13,6 +13,7 @@ import type {
   ProjectHealth,
   ProjectUpdate,
   NewProjectUpdate,
+  ProjectAuditEntry,
 } from '@/types/app.types'
 import { displayName } from '@/lib/users/display'
 
@@ -55,12 +56,17 @@ export async function updateProject(
 // a failure of the audit insert after the update succeeds is logged
 // and re-thrown. The follow-on risk is an unaudited health change,
 // which we accept until we migrate this to a Postgres RPC in v2.
+//
+// Returns the updated project plus the full audit entry (not just an
+// id) so callers can prepend the new entry to an Activity panel
+// without a follow-up read. actor_name is resolved through the same
+// displayName fallback used everywhere else.
 export async function updateProjectHealth(
   client: Client,
   id: string,
   newHealth: ProjectHealth,
   actorId: string,
-): Promise<{ project: Project; auditLogId: string }> {
+): Promise<{ project: Project; auditEntry: ProjectAuditEntry }> {
   const { data: current, error: readErr } = await client
     .from('projects')
     .select('health, organization_id')
@@ -90,7 +96,9 @@ export async function updateProjectHealth(
       old_value: { health: oldHealth },
       new_value: { health: newHealth },
     })
-    .select('id')
+    .select(
+      'id, action, old_value, new_value, created_at, actor:users!audit_log_user_id_fkey(full_name, email)',
+    )
     .single()
   if (auditErr) {
     console.error(
@@ -100,7 +108,19 @@ export async function updateProjectHealth(
     throw auditErr
   }
 
-  return { project: updated, auditLogId: audit.id }
+  const { actor, ...rest } = audit as typeof audit & {
+    actor: { full_name: string | null; email: string } | null
+  }
+  const auditEntry: ProjectAuditEntry = {
+    id: rest.id as string,
+    action: rest.action as string,
+    actor_name: actor ? displayName(actor) : null,
+    old_value: (rest.old_value ?? null) as Record<string, unknown> | null,
+    new_value: (rest.new_value ?? null) as Record<string, unknown> | null,
+    created_at: rest.created_at as string,
+  }
+
+  return { project: updated, auditEntry }
 }
 
 // Hard delete. FK cascades handle project_updates, milestones, risks.

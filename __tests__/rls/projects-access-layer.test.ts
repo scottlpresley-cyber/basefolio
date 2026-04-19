@@ -191,7 +191,7 @@ describe.skipIf(missing.length > 0)('projects data access layer (live RLS)', () 
     })
     expect(proj.health).toBe('green')
 
-    const { project: updated, auditLogId } = await updateProjectHealth(
+    const { project: updated, auditEntry } = await updateProjectHealth(
       orgA.userClient,
       proj.id,
       'red',
@@ -199,7 +199,12 @@ describe.skipIf(missing.length > 0)('projects data access layer (live RLS)', () 
     )
     expect(updated.id).toBe(proj.id)
     expect(updated.health).toBe('red')
-    expect(auditLogId).toBeTruthy()
+    expect(auditEntry.id).toBeTruthy()
+    expect(auditEntry.action).toBe('project.health_changed')
+    expect(auditEntry.old_value).toEqual({ health: 'green' })
+    expect(auditEntry.new_value).toEqual({ health: 'red' })
+    // Test users have full_name=null so displayName falls back to email local-part.
+    expect(auditEntry.actor_name).toBe(orgA.userEmail.split('@')[0])
 
     // Confirm the audit row via service role — the user client can
     // read it too under RLS, but service-role read-back mirrors how
@@ -208,7 +213,7 @@ describe.skipIf(missing.length > 0)('projects data access layer (live RLS)', () 
     const { data: audit, error } = await svc
       .from('audit_log')
       .select('action, entity_type, entity_id, old_value, new_value, user_id, organization_id')
-      .eq('id', auditLogId)
+      .eq('id', auditEntry.id)
       .single()
     expect(error).toBeNull()
     expect(audit).toMatchObject({

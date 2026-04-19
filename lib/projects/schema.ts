@@ -83,3 +83,68 @@ export type NewProjectFormValues = {
 // Post-validation payload: what the route handler processes and what
 // the onSubmit callback receives. Matches z.output<schema>.
 export type NewProjectInput = z.output<typeof newProjectInputSchema>
+
+// Inline-edit patch schema for PATCH /api/projects/[id].
+//
+// Semantics on the wire:
+//   - omitted key         -> "don't touch this field"
+//   - null                -> "unset to null" (distinct from omit —
+//                            needed so "Unassigned" owner works)
+//   - "" (empty string)   -> normalized to null via preprocess
+//   - non-empty string    -> validated as that field's shape
+//
+// The refine only fires when BOTH dates are in the patch body. Single-
+// date edits where the cross-field check matters (changing start_date
+// past an existing target_end_date) are caught by the PATCH handler
+// merging the patch with the current project — defense in depth.
+const emptyToNull = (v: unknown) => (v === '' ? null : v)
+
+export const projectPatchSchema = z
+  .object({
+    health: projectHealthSchema.optional(),
+
+    phase: z.preprocess(
+      emptyToNull,
+      z
+        .string()
+        .trim()
+        .max(100, 'Phase must be 100 characters or fewer.')
+        .nullable()
+        .optional(),
+    ),
+
+    owner_id: z.preprocess(
+      emptyToNull,
+      z.string().uuid('Invalid owner selection.').nullable().optional(),
+    ),
+
+    start_date: z.preprocess(
+      emptyToNull,
+      z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, 'Start date must be YYYY-MM-DD.')
+        .nullable()
+        .optional(),
+    ),
+
+    target_end_date: z.preprocess(
+      emptyToNull,
+      z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, 'Target end date must be YYYY-MM-DD.')
+        .nullable()
+        .optional(),
+    ),
+  })
+  .refine(
+    (d) =>
+      !d.start_date ||
+      !d.target_end_date ||
+      d.target_end_date >= d.start_date,
+    {
+      message: 'Target end date must be on or after the start date.',
+      path: ['target_end_date'],
+    },
+  )
+
+export type ProjectPatchInput = z.output<typeof projectPatchSchema>

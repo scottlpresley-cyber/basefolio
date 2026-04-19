@@ -54,3 +54,18 @@ export type NewProjectUpdate = Omit<
 
 export type ProjectHealth = 'green' | 'yellow' | 'red'
 export type ProjectStatus = 'active' | 'on_hold' | 'completed' | 'canceled'
+
+// A single audit_log row scoped to a project. actor_name is resolved
+// server-side via the same displayName fallback as owner_name so the
+// Activity panel never has to think about "full_name present?".
+// old_value / new_value are jsonb — the Activity panel specifically
+// handles project.health_changed entries today; other actions may
+// reuse this shape later.
+export type ProjectAuditEntry = {
+  id: string
+  action: string
+  actor_name: string | null
+  old_value: Record<string, unknown> | null
+  new_value: Record<string, unknown> | null
+  created_at: string
+}
