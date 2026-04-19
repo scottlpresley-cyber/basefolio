@@ -63,16 +63,22 @@ function makeClient(queries: Record<string, Query>): Client {
 }
 
 describe('listProjects', () => {
-  test('defaults to status=active, ordered by created_at desc', async () => {
-    const q = makeQuery({ data: [{ id: 'p1' }], error: null })
+  test('defaults to status=active, ordered by created_at desc, and joins owner', async () => {
+    const q = makeQuery({
+      data: [{ id: 'p1', owner: { full_name: 'Scott Presley' } }],
+      error: null,
+    })
     const client = makeClient({ projects: q })
 
     const rows = await listProjects(client)
 
-    expect(q.select).toHaveBeenCalledWith('*')
+    // Join shape must land in the select — single round-trip for name + row.
+    expect(q.select).toHaveBeenCalledWith(
+      '*, owner:users!projects_owner_id_fkey(full_name)',
+    )
     expect(q.order).toHaveBeenCalledWith('created_at', { ascending: false })
     expect(q.eq).toHaveBeenCalledWith('status', 'active')
-    expect(rows).toEqual([{ id: 'p1' }])
+    expect(rows).toEqual([{ id: 'p1', owner_name: 'Scott Presley' }])
   })
 
   test('honors explicit status override', async () => {
@@ -100,6 +106,25 @@ describe('listProjects', () => {
 
     const rows = await listProjects(client)
     expect(rows).toEqual([])
+  })
+
+  test('maps missing / unreadable owner to owner_name: null', async () => {
+    const q = makeQuery({
+      data: [
+        { id: 'p1', name: 'a', owner: null }, // owner_id null or unreadable
+        { id: 'p2', name: 'b', owner: { full_name: null } }, // user row has no name
+        { id: 'p3', name: 'c', owner: { full_name: 'Nomi' } },
+      ],
+      error: null,
+    })
+    const client = makeClient({ projects: q })
+
+    const rows = await listProjects(client)
+    expect(rows).toEqual([
+      { id: 'p1', name: 'a', owner_name: null },
+      { id: 'p2', name: 'b', owner_name: null },
+      { id: 'p3', name: 'c', owner_name: 'Nomi' },
+    ])
   })
 
   test('throws on DB error', async () => {

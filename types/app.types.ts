@@ -9,7 +9,10 @@ type ProjectRow = Database['public']['Tables']['projects']['Row']
 type ProjectInsert = Database['public']['Tables']['projects']['Insert']
 type ProjectUpdate = Database['public']['Tables']['projects']['Update']
 
-export type Project = ProjectRow
+// Row shape + owner_name that query helpers may attach when they join
+// against the users table. Optional because not every helper does the
+// join (createProject returns the raw insert shape, for example).
+export type Project = ProjectRow & { owner_name?: string | null }
 
 // Insert payload. organization_id is required by the DB (NOT NULL, no
 // default) and the data layer forwards whatever the caller supplies —

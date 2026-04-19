@@ -15,6 +15,13 @@ type Client = SupabaseClient<Database>
 // Default: only active projects. Pass opts.status = undefined (i.e.
 // `{ status: undefined }`) to read every status; pass a specific
 // value to filter to that one. Omitting opts keeps the default.
+//
+// Joins users via the projects.owner_id FK so the caller gets
+// owner_name alongside the raw row — avoids N+1 name lookups in the
+// projects list and future dashboard grid. The join respects RLS:
+// users-table SELECT policy is org-scoped, so a project whose
+// owner_id points somewhere unreadable comes back with owner_name
+// null rather than leaking cross-org names.
 export async function listProjects(
   client: Client,
   opts?: { status?: ProjectStatus },
@@ -23,7 +30,7 @@ export async function listProjects(
 
   let query = client
     .from('projects')
-    .select('*')
+    .select('*, owner:users!projects_owner_id_fkey(full_name)')
     .order('created_at', { ascending: false })
 
   if (status !== undefined) {
@@ -32,7 +39,14 @@ export async function listProjects(
 
   const { data, error } = await query
   if (error) throw error
-  return data ?? []
+  if (!data) return []
+
+  return data.map((row) => {
+    const { owner, ...rest } = row as typeof row & {
+      owner: { full_name: string | null } | null
+    }
+    return { ...(rest as Project), owner_name: owner?.full_name ?? null }
+  })
 }
 
 // Returns null on both "row does not exist" and "RLS hid the row" —
