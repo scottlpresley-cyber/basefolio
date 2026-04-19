@@ -18,6 +18,7 @@ export function FormField({
   hint,
   children,
   className,
+  aiAccent,
 }: {
   label: string;
   htmlFor?: string;
@@ -26,9 +27,21 @@ export function FormField({
   hint?: string;
   children: ReactNode;
   className?: string;
+  // When true, the field container gets the teal left-border accent
+  // from ui-context.md §2 — the app's signal that the content was
+  // AI-populated. Callers fade this off as soon as the user edits
+  // the field. Kept on the wrapper (not the input) so focus rings
+  // and invalid-state borders remain intact.
+  aiAccent?: boolean;
 }) {
   return (
-    <div className={cn("block", className)}>
+    <div
+      className={cn(
+        "block",
+        aiAccent && "border-l-2 border-teal pl-3",
+        className,
+      )}
+    >
       <label
         htmlFor={htmlFor}
         className="text-xs font-medium text-text-muted uppercase tracking-wide block mb-2"

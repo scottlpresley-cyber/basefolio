@@ -133,12 +133,17 @@ export async function getProjectsBySourceReport(
 export async function listProjectUpdates(
   client: Client,
   projectId: string,
+  opts?: { limit?: number },
 ): Promise<ProjectUpdate[]> {
-  const { data, error } = await client
+  let query = client
     .from('project_updates')
     .select('*, author:users!project_updates_author_id_fkey(full_name, email)')
     .eq('project_id', projectId)
     .order('created_at', { ascending: false })
+  if (opts?.limit !== undefined) {
+    query = query.limit(opts.limit)
+  }
+  const { data, error } = await query
   if (error) throw error
   if (!data) return []
 
