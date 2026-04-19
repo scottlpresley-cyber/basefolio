@@ -2,6 +2,21 @@ import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
 import { ParseError, type ParsedRow } from './types'
 
+// Hard cap on rows in a single upload. Enforced at parse time so both
+// /api/status-draft/upload (initial parse) and /api/status-draft/generate
+// (re-parse from storage) reject oversized files the same way.
+//
+// Sizing: 5000 rows at ~500 bytes/row = ~2.5 MB of pre-Claude data,
+// which fits in context with room for the prompt template and a
+// healthy response. MVP bound — raise when real-user data asks for it.
+export const MAX_ROWS_PER_UPLOAD = 5000
+
+// Hard cap on grouped-project count per report. Enforced at the
+// generate-route level (grouping happens there). Business-tier
+// imports need more than the Starter/Team plan caps, but nobody
+// needs more than 100 distinct projects in a single status draft.
+export const MAX_PROJECTS_PER_REPORT = 100
+
 export interface ParseResult {
   headers: string[]
   rows: ParsedRow[]
@@ -10,9 +25,24 @@ export interface ParseResult {
 export function parseFile(buffer: Buffer, filename: string): ParseResult {
   const ext = getExtension(filename)
 
-  if (ext === 'csv') return parseCsv(buffer)
-  if (ext === 'xlsx' || ext === 'xls') return parseXlsx(buffer)
-  throw new ParseError('UNSUPPORTED_FORMAT', `Unsupported file extension: .${ext}`)
+  let result: ParseResult
+  if (ext === 'csv') result = parseCsv(buffer)
+  else if (ext === 'xlsx' || ext === 'xls') result = parseXlsx(buffer)
+  else {
+    throw new ParseError(
+      'UNSUPPORTED_FORMAT',
+      `Unsupported file extension: .${ext}`,
+    )
+  }
+
+  if (result.rows.length > MAX_ROWS_PER_UPLOAD) {
+    throw new ParseError(
+      'ROW_COUNT_EXCEEDED',
+      `File has ${result.rows.length} rows (cap ${MAX_ROWS_PER_UPLOAD})`,
+    )
+  }
+
+  return result
 }
 
 function getExtension(filename: string): string {

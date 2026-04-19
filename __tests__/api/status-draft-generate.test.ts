@@ -135,8 +135,16 @@ function installFromRouter(
     insertError?: unknown
     capturedInsert?: { payload?: Record<string, unknown> }
     capturedUpdate?: { narrative?: string | null; reportId?: string }
+    // ai_usage_events mocks:
+    rateLimitEvents?: Array<{ created_at: string }>
+    capturedUsageInsert?: {
+      calls: Array<Record<string, unknown>>
+    }
   } = {},
 ) {
+  if (options.capturedUsageInsert && !options.capturedUsageInsert.calls) {
+    options.capturedUsageInsert.calls = []
+  }
   mockFrom.mockImplementation((table: string) => {
     if (table === 'users') {
       return {
@@ -169,6 +177,30 @@ function installFromRouter(
             return Promise.resolve({ error: null }).then((r) => r)
           },
         }),
+      }
+    }
+    if (table === 'ai_usage_events') {
+      return {
+        // READ path for enforceRateLimit: select('created_at')
+        //   .eq(user_id,...).eq(event_type,...).gte(created_at,...)
+        //   .order(created_at, ascending: true)
+        select: () => {
+          const chain = {
+            eq: () => chain,
+            gte: () => chain,
+            order: () =>
+              Promise.resolve({
+                data: options.rateLimitEvents ?? [],
+                error: null,
+              }),
+          }
+          return chain
+        },
+        // WRITE path for logAIUsageEvent: insert({...})
+        insert: (payload: Record<string, unknown>) => {
+          options.capturedUsageInsert?.calls.push(payload)
+          return Promise.resolve({ data: null, error: null })
+        },
       }
     }
     throw new Error(`Unexpected table ${table}`)
@@ -316,5 +348,85 @@ describe('POST /api/status-draft/generate', () => {
     await new Promise((r) => setTimeout(r, 10))
     // Stream erred — route wires narrative save to 'end', which never fired.
     expect(captured.narrative).toBeUndefined()
+  })
+
+  it('returns 429 RATE_LIMIT_EXCEEDED when the caller has 5 in-window events', async () => {
+    installAuthedDefaults()
+    const usageCaps: { calls: Array<Record<string, unknown>> } = { calls: [] }
+    // Five events, oldest 30 min ago — cap fires, retry_after ~1800s.
+    const now = Date.now()
+    const events = Array.from({ length: 5 }, (_, i) => ({
+      created_at: new Date(now - (1800 - i * 60) * 1000).toISOString(),
+    }))
+    installFromRouter({
+      rateLimitEvents: events,
+      capturedUsageInsert: usageCaps,
+    })
+
+    const res = await POST(buildRequest(validBody()))
+    expect(res.status).toBe(429)
+    const body = await res.json()
+    expect(body.code).toBe('RATE_LIMIT_EXCEEDED')
+    expect(body.error).toMatch(/rate limit/i)
+    expect(body.retry_after_seconds).toBeGreaterThan(0)
+    expect(res.headers.get('Retry-After')).toBe(String(body.retry_after_seconds))
+
+    // Rate-limited call should NOT invoke Claude.
+    expect(mockCallClaude).not.toHaveBeenCalled()
+    // And should NOT log a usage event (nothing to log — call didn't happen).
+    expect(usageCaps.calls).toHaveLength(0)
+  })
+
+  it('logs a status_draft_generate ai_usage_events row AFTER a successful stream', async () => {
+    installAuthedDefaults()
+    const usageCaps: { calls: Array<Record<string, unknown>> } = { calls: [] }
+    installFromRouter({
+      rateLimitEvents: [], // under the cap
+      capturedUsageInsert: usageCaps,
+    })
+
+    mockCallClaude.mockResolvedValue(makeMockClaudeStream({ chunks: ['ok'] }))
+
+    const res = await POST(buildRequest(validBody()))
+    expect(res.status).toBe(200)
+    await readFullBody(res.body!)
+
+    // Give the fire-and-forget log a tick to land.
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(usageCaps.calls).toHaveLength(1)
+    expect(usageCaps.calls[0]).toMatchObject({
+      organization_id: TEST_ORG_ID,
+      user_id: TEST_USER_ID,
+      event_type: 'status_draft_generate',
+      model: 'narrative',
+    })
+    // Stream mode doesn't surface token counts cleanly — null is the
+    // honest value today, not zero.
+    expect(usageCaps.calls[0].tokens_in).toBeNull()
+    expect(usageCaps.calls[0].tokens_out).toBeNull()
+    expect(usageCaps.calls[0].cost_usd).toBeNull()
+  })
+
+  it('does NOT log a usage event when the Claude stream errors', async () => {
+    installAuthedDefaults()
+    const usageCaps: { calls: Array<Record<string, unknown>> } = { calls: [] }
+    installFromRouter({
+      rateLimitEvents: [],
+      capturedUsageInsert: usageCaps,
+    })
+
+    mockCallClaude.mockResolvedValue(
+      makeMockClaudeStream({ chunks: ['partial '], errorAfter: 1 }),
+    )
+
+    const res = await POST(buildRequest(validBody()))
+    expect(res.status).toBe(200)
+    await readFullBody(res.body!)
+
+    await new Promise((r) => setTimeout(r, 10))
+    // No successful 'end' event fired, so no usage row is written —
+    // a failed Claude call must not count against the user's quota.
+    expect(usageCaps.calls).toHaveLength(0)
   })
 })

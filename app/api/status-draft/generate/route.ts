@@ -5,14 +5,21 @@ import {
   buildStatusDraftPrompt,
 } from '@/lib/ai/prompts/status-draft'
 import { computeProjectMetrics } from '@/lib/file-processing/compute-metrics'
+import { parseErrorToResponse } from '@/lib/file-processing/error-response'
 import { groupProjects } from '@/lib/file-processing/group-projects'
-import { parseFile } from '@/lib/file-processing/parse'
-import type {
-  CanonicalField,
-  ColumnMap,
-  ComputedProject,
-  SourceTool,
+import { MAX_PROJECTS_PER_REPORT, parseFile } from '@/lib/file-processing/parse'
+import {
+  ParseError,
+  type CanonicalField,
+  type ColumnMap,
+  type ComputedProject,
+  type SourceTool,
 } from '@/lib/file-processing/types'
+import {
+  enforceRateLimit,
+  logAIUsageEvent,
+  RateLimitExceededError,
+} from '@/lib/rate-limit'
 import {
   createClient,
   createServiceRoleClient,
@@ -110,6 +117,32 @@ export async function POST(request: Request) {
 
     const organizationId = profile.organization_id as string
 
+    // Rate gate: 5 generations per user per hour. Runs BEFORE the
+    // Claude call and BEFORE heavy file parsing so a rate-limited
+    // user doesn't pay for work they can't complete. Logged only on
+    // success (below) so Anthropic errors don't count against quota.
+    try {
+      await enforceRateLimit(supabase, user.id, organizationId, {
+        eventType: 'status_draft_generate',
+        maxPerHour: 5,
+      })
+    } catch (err) {
+      if (err instanceof RateLimitExceededError) {
+        return Response.json(
+          {
+            error: "You've hit the rate limit for report generation.",
+            code: 'RATE_LIMIT_EXCEEDED',
+            retry_after_seconds: err.retryAfterSeconds,
+          },
+          {
+            status: 429,
+            headers: { 'Retry-After': String(err.retryAfterSeconds) },
+          },
+        )
+      }
+      throw err
+    }
+
     let body: unknown
     try {
       body = await request.json()
@@ -144,9 +177,38 @@ export async function POST(request: Request) {
     }
 
     const buffer = Buffer.from(await blob.arrayBuffer())
-    const parsedFile = parseFile(buffer, originalFilename)
+
+    // Input cap: parseFile throws ROW_COUNT_EXCEEDED when > 5000 rows.
+    // That cap is enforced at upload too, but re-parsing from storage
+    // is a defense-in-depth check — a rogue storageKey wouldn't
+    // have passed upload, but a future ingestion path might.
+    let parsedFile: ReturnType<typeof parseFile>
+    try {
+      parsedFile = parseFile(buffer, originalFilename)
+    } catch (err) {
+      if (err instanceof ParseError) {
+        const { status, body: errorBody } = parseErrorToResponse(err)
+        return Response.json(errorBody, { status })
+      }
+      throw err
+    }
 
     const groups = groupProjects(parsedFile.rows, columnMap)
+
+    // Input cap: reject prompts that would stuff Claude with an
+    // absurd number of distinct project sections. Business-tier
+    // imports rarely exceed 40 projects; 100 is a generous ceiling.
+    if (groups.length > MAX_PROJECTS_PER_REPORT) {
+      return Response.json(
+        {
+          error: 'Your file produces too many projects for a single report.',
+          detail: `Reports are capped at ${MAX_PROJECTS_PER_REPORT} grouped projects. Your file produced ${groups.length}. Filter the export to fewer area paths, epics, or iterations and try again.`,
+          code: 'PROJECT_COUNT_EXCEEDED',
+        },
+        { status: 400 },
+      )
+    }
+
     const projects: ComputedProject[] = groups.map((g) =>
       computeProjectMetrics(g.name, g.groupingKey, g.rows, columnMap),
     )
@@ -225,6 +287,20 @@ export async function POST(request: Request) {
           } catch {
             /* already closed */
           }
+
+          // Log a successful AI usage event AFTER the stream closes,
+          // so a failed generation doesn't count against the user's
+          // rate limit. tokens_in/out and cost are null because the
+          // stream API doesn't surface them cleanly; proper usage
+          // accounting is a future prompt.
+          void logAIUsageEvent(supabase, user.id, organizationId, {
+            event_type: 'status_draft_generate',
+            model: 'narrative',
+            tokens_in: null,
+            tokens_out: null,
+            cost_usd: null,
+          })
+
           // Persist narrative after the client stream closes. A failed save
           // is recoverable; a failed stream ruins the UX.
           void supabase

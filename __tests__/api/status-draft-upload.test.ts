@@ -150,4 +150,24 @@ describe('POST /api/status-draft/upload', () => {
     const body = await res.json()
     expect(body.code).toBe('STORAGE_FAILED')
   })
+
+  it('returns 400 ROW_COUNT_EXCEEDED when the file has more than 5000 rows', async () => {
+    authedDefaults()
+    // Build a 5001-row CSV inline so the test doesn't depend on a
+    // multi-megabyte fixture file.
+    const header = 'ID,Title,State\n'
+    const rows: string[] = []
+    for (let i = 1; i <= 5001; i++) {
+      rows.push(`${i},Item ${i},Active`)
+    }
+    const content = header + rows.join('\n')
+    const res = await POST(buildRequest(csvFile('huge.csv', content)))
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.code).toBe('ROW_COUNT_EXCEEDED')
+    expect(body.error).toMatch(/5,000 rows|5000 rows/)
+    // Storage upload must NOT be called — the cap fires before we
+    // stage the file.
+    expect(mockStorageUpload).not.toHaveBeenCalled()
+  })
 })

@@ -60,7 +60,18 @@ export function ReportStream({
           let message = "We couldn't generate your report. Try again.";
           try {
             const json = await res.json();
-            if (json?.error) message = json.error;
+            if (res.status === 429 && typeof json?.retry_after_seconds === "number") {
+              // User hit the per-hour cap. No auto-retry — the user
+              // decides when to come back.
+              message = `${json.error ?? "You've hit the rate limit for report generation."} Try again in ${formatRetry(json.retry_after_seconds)}.`;
+            } else if (json?.detail) {
+              // ROW_COUNT_EXCEEDED / PROJECT_COUNT_EXCEEDED — the
+              // top-level `error` is short; `detail` has the
+              // actionable guidance.
+              message = `${json.error ?? "Request rejected."} ${json.detail}`;
+            } else if (json?.error) {
+              message = json.error;
+            }
           } catch {
             /* non-JSON error body */
           }
@@ -258,6 +269,12 @@ export function ReportStream({
       )}
     </div>
   );
+}
+
+function formatRetry(seconds: number): string {
+  if (seconds < 60) return `${seconds} second${seconds === 1 ? "" : "s"}`;
+  const minutes = Math.ceil(seconds / 60);
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
 
 function toMarkdownFilename(original: string): string {

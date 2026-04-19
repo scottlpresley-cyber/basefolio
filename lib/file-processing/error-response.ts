@@ -35,6 +35,11 @@ const MESSAGES: Record<ParseErrorCode, { status: number; error: string }> = {
     error:
       "We couldn't find a title or status column in this file. Check your export and try again.",
   },
+  ROW_COUNT_EXCEEDED: {
+    status: 400,
+    error:
+      'Your file has too many rows for a single report. Reports are capped at 5,000 rows — split the export into smaller chunks by area path or iteration and try again.',
+  },
 }
 
 export function parseErrorToResponse(err: ParseError): ErrorResponse {

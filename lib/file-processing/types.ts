@@ -64,6 +64,7 @@ export type ParseErrorCode =
   | 'TOO_LARGE'
   | 'UNSUPPORTED_FORMAT'
   | 'NO_REQUIRED_FIELDS'
+  | 'ROW_COUNT_EXCEEDED'
 
 export class ParseError extends Error {
   code: ParseErrorCode
