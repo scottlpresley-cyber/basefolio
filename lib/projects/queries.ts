@@ -59,14 +59,45 @@ export async function listProjects(
 // Returns null on both "row does not exist" and "RLS hid the row" —
 // the caller decides whether that becomes a 404 or a 403. Using
 // maybeSingle instead of single so zero rows isn't an error.
+//
+// Two sequential queries:
+//   1. projects + owner join — same shape as listProjects so the
+//      detail page and the list view both resolve owner_name the
+//      same way (via displayName's full_name -> email fallback).
+//   2. Newest project_updates row for last_update_at — powers the
+//      "Last update N days ago" line in the detail sidebar.
+//
+// Serial (not parallel) because the second query is wasted work
+// whenever RLS hides the project; a null first result short-circuits.
+// Returning a null last_update_at when no updates exist is the
+// correct signal for "no updates yet".
 export async function getProject(client: Client, id: string): Promise<Project | null> {
-  const { data, error } = await client
+  const { data: project, error } = await client
     .from('projects')
-    .select('*')
+    .select('*, owner:users!projects_owner_id_fkey(full_name, email)')
     .eq('id', id)
     .maybeSingle()
   if (error) throw error
-  return data ?? null
+  if (!project) return null
+
+  const { owner, ...rest } = project as typeof project & {
+    owner: { full_name: string | null; email: string } | null
+  }
+
+  const { data: latestUpdate, error: updateErr } = await client
+    .from('project_updates')
+    .select('created_at')
+    .eq('project_id', id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (updateErr) throw updateErr
+
+  return {
+    ...(rest as Project),
+    owner_name: owner ? displayName(owner) : null,
+    last_update_at: latestUpdate?.created_at ?? null,
+  }
 }
 
 // Backs the Status Draft import flow's "view imported" confirmation

@@ -75,3 +75,29 @@ export function HealthDot({
     />
   );
 }
+
+// "Full pill" variant from Pattern 3 — larger than the table badge,
+// rendered once at the top of the project detail page.
+export function HealthPill({
+  status,
+  className,
+}: {
+  status: ProjectHealth;
+  className?: string;
+}) {
+  const cfg = HEALTH_CONFIG[status];
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium border",
+        cfg.bg,
+        cfg.text,
+        cfg.border,
+        className,
+      )}
+    >
+      <span className="w-2 h-2 rounded-full bg-current" />
+      {cfg.label}
+    </span>
+  );
+}

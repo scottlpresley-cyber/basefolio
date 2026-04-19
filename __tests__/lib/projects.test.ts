@@ -154,24 +154,85 @@ describe('listProjects', () => {
 })
 
 describe('getProject', () => {
-  test('returns null when no row is found', async () => {
-    const q = makeQuery({ data: null, error: null })
-    const client = makeClient({ projects: q })
+  test('returns null when project not found and skips the updates query', async () => {
+    const projectsQ = makeQuery({ data: null, error: null })
+    const updatesQ = makeQuery({ data: null, error: null })
+    const client = makeClient({ projects: projectsQ, project_updates: updatesQ })
 
     const got = await getProject(client, 'missing-id')
 
-    expect(q.eq).toHaveBeenCalledWith('id', 'missing-id')
-    expect(q.maybeSingle).toHaveBeenCalledOnce()
+    expect(projectsQ.eq).toHaveBeenCalledWith('id', 'missing-id')
+    expect(projectsQ.maybeSingle).toHaveBeenCalledOnce()
+    // Short-circuit: no project -> no updates lookup.
+    expect(updatesQ.maybeSingle).not.toHaveBeenCalled()
     expect(got).toBeNull()
   })
 
-  test('returns the row when present', async () => {
-    const row = { id: 'p1', name: 'x' }
-    const q = makeQuery({ data: row, error: null })
-    const client = makeClient({ projects: q })
+  test('joins owner + resolves last_update_at when project and update exist', async () => {
+    const projectsQ = makeQuery({
+      data: {
+        id: 'p1',
+        name: 'Portal',
+        health: 'green',
+        owner: { full_name: 'Scott Presley', email: 'scott@example.com' },
+      },
+      error: null,
+    })
+    const updatesQ = makeQuery({
+      data: { created_at: '2026-04-15T12:00:00Z' },
+      error: null,
+    })
+    const client = makeClient({ projects: projectsQ, project_updates: updatesQ })
 
     const got = await getProject(client, 'p1')
-    expect(got).toBe(row)
+
+    // Select shape mirrors listProjects so display resolution is consistent.
+    expect(projectsQ.select).toHaveBeenCalledWith(
+      '*, owner:users!projects_owner_id_fkey(full_name, email)',
+    )
+    // Latest-update query: newest row only, project-scoped.
+    expect(updatesQ.select).toHaveBeenCalledWith('created_at')
+    expect(updatesQ.eq).toHaveBeenCalledWith('project_id', 'p1')
+    expect(updatesQ.order).toHaveBeenCalledWith('created_at', { ascending: false })
+    expect(updatesQ.limit).toHaveBeenCalledWith(1)
+
+    expect(got).toEqual({
+      id: 'p1',
+      name: 'Portal',
+      health: 'green',
+      owner_name: 'Scott Presley',
+      last_update_at: '2026-04-15T12:00:00Z',
+    })
+  })
+
+  test('last_update_at is null when no updates exist for the project', async () => {
+    const projectsQ = makeQuery({
+      data: {
+        id: 'p2',
+        name: 'Empty',
+        owner: { full_name: null, email: 'scott.l.presley@gmail.com' },
+      },
+      error: null,
+    })
+    const updatesQ = makeQuery({ data: null, error: null })
+    const client = makeClient({ projects: projectsQ, project_updates: updatesQ })
+
+    const got = await getProject(client, 'p2')
+    expect(got?.last_update_at).toBeNull()
+    // displayName fallback still runs when full_name is null.
+    expect(got?.owner_name).toBe('scott.l.presley')
+  })
+
+  test('owner_name is null when owner is null (unassigned project)', async () => {
+    const projectsQ = makeQuery({
+      data: { id: 'p3', name: 'Orphan', owner: null },
+      error: null,
+    })
+    const updatesQ = makeQuery({ data: null, error: null })
+    const client = makeClient({ projects: projectsQ, project_updates: updatesQ })
+
+    const got = await getProject(client, 'p3')
+    expect(got?.owner_name).toBeNull()
   })
 })
 

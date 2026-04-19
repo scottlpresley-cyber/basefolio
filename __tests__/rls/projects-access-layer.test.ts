@@ -108,6 +108,47 @@ describe.skipIf(missing.length > 0)('projects data access layer (live RLS)', () 
     expect(miss).toBeNull()
   })
 
+  test('getProject attaches owner_name and last_update_at', async () => {
+    // Create a fresh project owned by the orgA user. last_update_at
+    // should be null initially (no project_updates rows yet).
+    const proj = await createProject(orgA.userClient, {
+      organization_id: orgA.orgId,
+      name: 'rls-dal-detail',
+      owner_id: orgA.userId,
+    })
+
+    const before = await getProject(orgA.userClient, proj.id)
+    expect(before).not.toBeNull()
+    expect(before?.id).toBe(proj.id)
+    // owner_name resolves via displayName — full_name is null for
+    // trigger-provisioned test users so the email local-part wins.
+    expect(before?.owner_name).toBe(orgA.userEmail.split('@')[0])
+    expect(before?.last_update_at).toBeNull()
+
+    // Seed a project_update via service role so the helper has
+    // something to pick up. The timestamp comes back from getProject
+    // via the second query.
+    const svc = serviceClient()
+    const seededAt = new Date().toISOString()
+    const { data: update, error: updateErr } = await svc
+      .from('project_updates')
+      .insert({
+        organization_id: orgA.orgId,
+        project_id: proj.id,
+        author_id: orgA.userId,
+        health: 'green',
+        summary: 'rls-dal-update-for-detail',
+        created_at: seededAt,
+      })
+      .select('created_at')
+      .single()
+    expect(updateErr).toBeNull()
+    expect(update).not.toBeNull()
+
+    const after = await getProject(orgA.userClient, proj.id)
+    expect(after?.last_update_at).toBe(update!.created_at)
+  })
+
   test('getProjectsBySourceReport scopes by report_id and respects RLS', async () => {
     // Seed a status_report belonging to orgA so the projects can
     // reference it (RLS on status_reports permits the insert under
