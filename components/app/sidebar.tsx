@@ -11,6 +11,7 @@ import {
   UploadCloud,
   type LucideIcon,
 } from "lucide-react";
+import { displayName } from "@/lib/users/display";
 
 type NavItem = {
   label: string;
@@ -45,7 +46,7 @@ function deriveInitials(name: string | null, email: string) {
 
 export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
-  const displayName = user.name ?? user.email.split("@")[0];
+  const shown = displayName({ full_name: user.name, email: user.email });
   const initials = deriveInitials(user.name, user.email);
 
   return (
@@ -98,7 +99,7 @@ export function Sidebar({ user }: SidebarProps) {
           </div>
           <div className="min-w-0">
             <p className="text-sm font-medium text-white truncate">
-              {displayName}
+              {shown}
             </p>
             <p className="text-xs text-white/40 truncate">{user.email}</p>
           </div>

@@ -65,7 +65,7 @@ function makeClient(queries: Record<string, Query>): Client {
 describe('listProjects', () => {
   test('defaults to status=active, ordered by created_at desc, and joins owner', async () => {
     const q = makeQuery({
-      data: [{ id: 'p1', owner: { full_name: 'Scott Presley' } }],
+      data: [{ id: 'p1', owner: { full_name: 'Scott Presley', email: 'scott@example.com' } }],
       error: null,
     })
     const client = makeClient({ projects: q })
@@ -73,8 +73,9 @@ describe('listProjects', () => {
     const rows = await listProjects(client)
 
     // Join shape must land in the select — single round-trip for name + row.
+    // email is selected alongside full_name so displayName has its fallback input.
     expect(q.select).toHaveBeenCalledWith(
-      '*, owner:users!projects_owner_id_fkey(full_name)',
+      '*, owner:users!projects_owner_id_fkey(full_name, email)',
     )
     expect(q.order).toHaveBeenCalledWith('created_at', { ascending: false })
     expect(q.eq).toHaveBeenCalledWith('status', 'active')
@@ -108,12 +109,29 @@ describe('listProjects', () => {
     expect(rows).toEqual([])
   })
 
-  test('maps missing / unreadable owner to owner_name: null', async () => {
+  test('resolves owner_name via displayName: null when owner is absent, email fallback when full_name is null', async () => {
     const q = makeQuery({
       data: [
-        { id: 'p1', name: 'a', owner: null }, // owner_id null or unreadable
-        { id: 'p2', name: 'b', owner: { full_name: null } }, // user row has no name
-        { id: 'p3', name: 'c', owner: { full_name: 'Nomi' } },
+        // owner_id null or RLS-hidden → owner_name stays null
+        { id: 'p1', name: 'a', owner: null },
+        // user row present but full_name null → fall back to email local-part
+        {
+          id: 'p2',
+          name: 'b',
+          owner: { full_name: null, email: 'nomi.local@example.com' },
+        },
+        // full_name present → use it verbatim
+        {
+          id: 'p3',
+          name: 'c',
+          owner: { full_name: 'Nomi', email: 'nomi.local@example.com' },
+        },
+        // whitespace-only full_name → treat as empty, fall back
+        {
+          id: 'p4',
+          name: 'd',
+          owner: { full_name: '   ', email: 'space@example.com' },
+        },
       ],
       error: null,
     })
@@ -122,8 +140,9 @@ describe('listProjects', () => {
     const rows = await listProjects(client)
     expect(rows).toEqual([
       { id: 'p1', name: 'a', owner_name: null },
-      { id: 'p2', name: 'b', owner_name: null },
+      { id: 'p2', name: 'b', owner_name: 'nomi.local' },
       { id: 'p3', name: 'c', owner_name: 'Nomi' },
+      { id: 'p4', name: 'd', owner_name: 'space' },
     ])
   })
 

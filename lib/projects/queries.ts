@@ -9,6 +9,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database.types'
 import type { Project, ProjectStatus } from '@/types/app.types'
+import { displayName } from '@/lib/users/display'
 
 type Client = SupabaseClient<Database>
 
@@ -22,6 +23,11 @@ type Client = SupabaseClient<Database>
 // users-table SELECT policy is org-scoped, so a project whose
 // owner_id points somewhere unreadable comes back with owner_name
 // null rather than leaking cross-org names.
+//
+// owner_name is derived via displayName() so every surface (this
+// query, the sidebar, the form select) uses the same full_name ->
+// email-local-part fallback. A null owner_id (unassigned project)
+// still maps to null; a real owner always maps to a real string.
 export async function listProjects(
   client: Client,
   opts?: { status?: ProjectStatus },
@@ -30,7 +36,7 @@ export async function listProjects(
 
   let query = client
     .from('projects')
-    .select('*, owner:users!projects_owner_id_fkey(full_name)')
+    .select('*, owner:users!projects_owner_id_fkey(full_name, email)')
     .order('created_at', { ascending: false })
 
   if (status !== undefined) {
@@ -43,9 +49,10 @@ export async function listProjects(
 
   return data.map((row) => {
     const { owner, ...rest } = row as typeof row & {
-      owner: { full_name: string | null } | null
+      owner: { full_name: string | null; email: string } | null
     }
-    return { ...(rest as Project), owner_name: owner?.full_name ?? null }
+    const owner_name = owner ? displayName(owner) : null
+    return { ...(rest as Project), owner_name }
   })
 }
 

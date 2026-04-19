@@ -31,6 +31,7 @@ import {
   type NewProjectInput,
 } from "@/lib/projects/schema";
 import type { OrgMember } from "@/lib/users/queries";
+import { displayName } from "@/lib/users/display";
 
 type FieldErrors = Partial<Record<keyof NewProjectFormValues, string>>;
 
@@ -245,7 +246,7 @@ export function ProjectForm({
               <option value="">Unassigned</option>
               {members.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.full_name?.trim() || m.email}
+                  {displayName(m)}
                   {m.id === currentUserId ? " (you)" : ""}
                 </option>
               ))}
