@@ -1,6 +1,21 @@
+// POST /api/status-draft/import — materializes a Status Draft report
+// into real projects + anchor status updates. Thin handler on top of
+// the bulkImportProjects mutation; the field-by-field population
+// logic lives in lib/file-processing/build-project-payload.
+//
+// Wire shape intentionally unchanged from Sprint 1:
+//   200 { imported, skipped, projectIds }
+// The ReportStream UI consumes that directly — any drift here would
+// cascade to the client. Updates to the response contract are
+// deliberate, not incidental.
+
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
-import type { ComputedProject } from '@/lib/file-processing/types'
+import { getAuthContext } from '@/lib/auth/context'
+import { bulkImportProjects } from '@/lib/projects/mutations'
+import { listOrgMembers } from '@/lib/users/queries'
+import { buildProjectPayload } from '@/lib/file-processing/build-project-payload'
+import type { ComputedProject, SourceTool } from '@/lib/file-processing/types'
 
 export const runtime = 'nodejs'
 export const maxDuration = 30
@@ -9,17 +24,25 @@ const bodySchema = z.object({
   reportId: z.string().uuid(),
 })
 
-const VALID_SOURCES = ['ado', 'jira', 'smartsheet', 'manual'] as const
-type ProjectSource = (typeof VALID_SOURCES)[number]
+const VALID_SOURCES: ReadonlyArray<SourceTool> = [
+  'ado',
+  'jira',
+  'smartsheet',
+  'unknown',
+]
 
-function normalizeSource(value: unknown): ProjectSource {
-  if (typeof value === 'string' && (VALID_SOURCES as readonly string[]).includes(value)) {
-    return value as ProjectSource
+function normalizeSource(value: unknown): SourceTool {
+  if (typeof value === 'string' && VALID_SOURCES.includes(value as SourceTool)) {
+    return value as SourceTool
   }
-  return 'manual'
+  return 'unknown'
 }
 
-function isComputedProjectLike(v: unknown): v is Pick<ComputedProject, 'name' | 'health'> {
+// Permissive shape check — status_reports.content is jsonb populated
+// from pre-compute; we validate each element has enough to synthesize
+// a payload. Anything missing fields falls back gracefully inside
+// buildProjectPayload.
+function isComputedProjectLike(v: unknown): v is ComputedProject {
   return (
     typeof v === 'object' &&
     v !== null &&
@@ -35,34 +58,14 @@ function jsonError(message: string, code: string, status: number): Response {
 export async function POST(request: Request) {
   try {
     const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
+    const auth = await getAuthContext(supabase)
+    if (!auth) {
       return jsonError(
         'You need to be signed in to import projects.',
         'UNAUTHENTICATED',
         401,
       )
     }
-
-    const { data: profile, error: profileError } = await supabase
-      .from('users')
-      .select('organization_id')
-      .eq('id', user.id)
-      .single()
-
-    if (profileError || !profile) {
-      console.error('import: profile lookup failed', profileError)
-      return jsonError(
-        'You need to be signed in to import projects.',
-        'UNAUTHENTICATED',
-        401,
-      )
-    }
-
-    const organizationId = profile.organization_id as string
 
     let body: unknown
     try {
@@ -75,7 +78,6 @@ export async function POST(request: Request) {
     if (!parsed.success) {
       return jsonError('Invalid request.', 'BAD_REQUEST', 400)
     }
-
     const { reportId } = parsed.data
 
     const { data: report, error: reportError } = await supabase
@@ -83,20 +85,17 @@ export async function POST(request: Request) {
       .select('id, content, source_file_name')
       .eq('id', reportId)
       .single()
-
     if (reportError || !report) {
-      return jsonError(
-        "We couldn't find that report.",
-        'REPORT_NOT_FOUND',
-        404,
-      )
+      return jsonError("We couldn't find that report.", 'REPORT_NOT_FOUND', 404)
     }
 
-    const content = report.content as {
-      projects?: unknown
-      source?: unknown
-      meta?: { filename?: unknown }
-    } | null
+    const content = report.content as
+      | {
+          projects?: unknown
+          source?: unknown
+          meta?: { filename?: unknown; source?: unknown }
+        }
+      | null
 
     const rawProjects = content?.projects
     if (!Array.isArray(rawProjects)) {
@@ -117,66 +116,27 @@ export async function POST(request: Request) {
     }
 
     const source = normalizeSource(content?.source)
+    // source_file_name is canonical on the status_reports row; the
+    // content blob copies it under meta for self-containment.
+    const sourceFileName =
+      (report.source_file_name as string | null) ??
+      (typeof content?.meta?.filename === 'string' ? content.meta.filename : null)
 
-    const { data: existing, error: existingError } = await supabase
-      .from('projects')
-      .select('external_id')
-      .eq('organization_id', organizationId)
-      .eq('source_report_id', reportId)
+    const orgMembers = await listOrgMembers(supabase)
 
-    if (existingError) {
-      console.error('import: existing projects lookup failed', existingError)
-      return jsonError(
-        "We couldn't check for already-imported projects.",
-        'DB_READ_FAILED',
-        500,
-      )
-    }
-
-    const existingExternalIds = new Set(
-      (existing ?? [])
-        .map((r) => r.external_id)
-        .filter((v): v is string => typeof v === 'string'),
+    const payloads = validProjects.map((project) =>
+      buildProjectPayload({ project, source, sourceFileName }),
     )
 
-    const toInsert = validProjects
-      .filter((p) => !existingExternalIds.has(p.name))
-      .map((p) => ({
-        organization_id: organizationId,
-        name: p.name,
-        description: null,
-        status: 'active',
-        health: p.health,
-        source,
-        external_id: p.name,
-        source_report_id: reportId,
-      }))
-
-    const skipped = validProjects.length - toInsert.length
-
-    if (toInsert.length === 0) {
-      return Response.json({ imported: 0, skipped, projectIds: [] })
-    }
-
-    const { data: inserted, error: insertError } = await supabase
-      .from('projects')
-      .insert(toInsert)
-      .select('id')
-
-    if (insertError || !inserted) {
-      console.error('import: batch insert failed', insertError)
-      return jsonError(
-        "We couldn't import these projects. Try again.",
-        'DB_INSERT_FAILED',
-        500,
-      )
-    }
-
-    return Response.json({
-      imported: inserted.length,
-      skipped,
-      projectIds: inserted.map((r) => r.id as string),
+    const result = await bulkImportProjects(supabase, {
+      organizationId: auth.orgId,
+      sourceReportId: reportId,
+      userId: auth.userId,
+      payloads,
+      orgMembers,
     })
+
+    return Response.json(result)
   } catch (err) {
     console.error('import: unhandled error', err)
     return jsonError(

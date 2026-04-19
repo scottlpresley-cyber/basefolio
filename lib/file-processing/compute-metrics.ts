@@ -105,6 +105,13 @@ export function computeProjectMetrics(
     overdue: boolean
   }> = []
 
+  // Tracks the max parseable due_date across non-complete items. The
+  // project's target_end_date seed on import is "the last outstanding
+  // deadline" — complete items wouldn't contribute in the future and
+  // shouldn't here either.
+  let latestDueTs: number | null = null
+  let latestDueIso: string | null = null
+
   for (const row of rows) {
     const statusRaw = statusCol ? cellToString(row[statusCol]) : null
     const status = normalizeStatus(statusRaw)
@@ -114,6 +121,17 @@ export function computeProjectMetrics(
       ? isOverdue(row[dueCol], status, today)
       : false
     if (overdue) overdueCount++
+
+    if (dueCol && status !== 'complete') {
+      const dueIso = toIsoDateOnly(row[dueCol])
+      if (dueIso !== null) {
+        const ts = Date.parse(dueIso)
+        if (!Number.isNaN(ts) && (latestDueTs === null || ts > latestDueTs)) {
+          latestDueTs = ts
+          latestDueIso = dueIso
+        }
+      }
+    }
 
     const assignee = assigneeCol ? cellToString(row[assigneeCol]) : null
     if (assignee !== null) {
@@ -154,7 +172,25 @@ export function computeProjectMetrics(
     health,
     inferredOwner,
     topItems,
+    latestDueDate: latestDueIso,
   }
+}
+
+// Parses a raw cell into a YYYY-MM-DD string when it looks like a date,
+// null otherwise. Accepts ISO strings and common date-like formats; the
+// strict regex on output keeps downstream consumers simple.
+function toIsoDateOnly(
+  cell: string | number | null | undefined,
+): string | null {
+  const value = cellToString(cell)
+  if (value === null) return null
+  const parsed = Date.parse(value)
+  if (Number.isNaN(parsed)) return null
+  const d = new Date(parsed)
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 function modeOrNull(counts: Map<string, number>): string | null {

@@ -16,6 +16,8 @@ import type {
   ProjectAuditEntry,
 } from '@/types/app.types'
 import { displayName } from '@/lib/users/display'
+import type { ImportPayload } from '@/lib/file-processing/build-project-payload'
+import type { OrgMember } from '@/lib/users/queries'
 
 type Client = SupabaseClient<Database>
 
@@ -158,5 +160,145 @@ export async function createProjectUpdate(
   return {
     ...(rest as ProjectUpdate),
     author_name: author ? displayName(author) : null,
+  }
+}
+
+// Resolves a free-text owner signal (mode of the assignee column) to
+// a users.id in the caller's org. Tries email match first (case-
+// insensitive), then exact-match on full_name. Returns null if no
+// confident match — a wrong match would be worse than an unassigned
+// project. Never creates users; that's the invite flow's job.
+export function resolveOwnerIdFromSignal(
+  signal: string | null,
+  members: OrgMember[],
+): string | null {
+  if (!signal) return null
+  const needle = signal.trim().toLowerCase()
+  if (!needle) return null
+
+  // Email-shape signals: "name@domain" or "Display Name <name@domain>".
+  const emailMatch = needle.match(/([^\s<>]+@[^\s<>]+)/)
+  if (emailMatch) {
+    const email = emailMatch[1]
+    const byEmail = members.find((m) => m.email.toLowerCase() === email)
+    if (byEmail) return byEmail.id
+  }
+
+  // Fallback: exact case-insensitive full_name match.
+  const byName = members.find(
+    (m) => (m.full_name ?? '').trim().toLowerCase() === needle,
+  )
+  if (byName) return byName.id
+
+  return null
+}
+
+export type BulkImportResult = {
+  imported: number
+  skipped: number
+  projectIds: string[]
+}
+
+// Imports a batch of payloads into projects + seeds an initial
+// project_updates row for each. Matches Sprint 1's return shape so
+// the ReportStream UI doesn't need to change.
+//
+// Dedup: any payload whose external_id is already present under this
+// source_report_id is skipped (and counted). Cross-report collisions
+// are allowed — that's the whole point of the partial unique index
+// from migration 20260417000005.
+//
+// Non-transactional: if the projects insert succeeds but a per-
+// project updates insert fails, the project is still imported and
+// the failure is logged. Same eventual-consistency posture as
+// updateProjectHealth. A v2 migration would wrap this in a Postgres
+// RPC if the failure rate ever becomes measurable.
+export async function bulkImportProjects(
+  client: Client,
+  opts: {
+    organizationId: string
+    sourceReportId: string
+    userId: string
+    payloads: ImportPayload[]
+    orgMembers: OrgMember[]
+  },
+): Promise<BulkImportResult> {
+  const { organizationId, sourceReportId, userId, payloads, orgMembers } = opts
+
+  if (payloads.length === 0) {
+    return { imported: 0, skipped: 0, projectIds: [] }
+  }
+
+  // Per-report dedup lookup.
+  const { data: existing, error: existingErr } = await client
+    .from('projects')
+    .select('external_id')
+    .eq('organization_id', organizationId)
+    .eq('source_report_id', sourceReportId)
+  if (existingErr) throw existingErr
+
+  const existingExternalIds = new Set(
+    (existing ?? [])
+      .map((r) => r.external_id)
+      .filter((v): v is string => typeof v === 'string'),
+  )
+
+  const toInsert = payloads.filter(
+    (p) => !existingExternalIds.has(p.project.external_id),
+  )
+  const skipped = payloads.length - toInsert.length
+
+  if (toInsert.length === 0) {
+    return { imported: 0, skipped, projectIds: [] }
+  }
+
+  const insertRows: NewProject[] = toInsert.map((p) => ({
+    organization_id: organizationId,
+    source_report_id: sourceReportId,
+    name: p.project.name,
+    description: p.project.description,
+    phase: p.project.phase,
+    health: p.project.health,
+    status: p.project.status,
+    source: p.project.source,
+    external_id: p.project.external_id,
+    target_end_date: p.project.target_end_date,
+    owner_id: resolveOwnerIdFromSignal(p.project.inferredOwnerSignal, orgMembers),
+  }))
+
+  const { data: inserted, error: insertErr } = await client
+    .from('projects')
+    .insert(insertRows)
+    .select('id')
+  if (insertErr || !inserted) throw insertErr ?? new Error('bulkImportProjects: insert returned no rows')
+
+  // Seed one initial status_update per imported project. If any of
+  // these fail, the project is still imported — log and continue.
+  const updateRows = inserted.map((row, i) => ({
+    organization_id: organizationId,
+    project_id: row.id as string,
+    author_id: userId,
+    health: toInsert[i].initialUpdate.health,
+    summary: toInsert[i].initialUpdate.summary,
+    period_start: null,
+    period_end: null,
+  }))
+
+  const { error: updatesErr } = await client
+    .from('project_updates')
+    .insert(updateRows)
+  if (updatesErr) {
+    console.error(
+      `bulkImportProjects: anchor updates insert failed for report ${sourceReportId}`,
+      updatesErr,
+    )
+    // Proceed — projects are in, updates feed just won't have the
+    // anchor entry. Better than failing the whole import.
+  }
+
+  return {
+    imported: inserted.length,
+    skipped,
+    projectIds: inserted.map((r) => r.id as string),
   }
 }

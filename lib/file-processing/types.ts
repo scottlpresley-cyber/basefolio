@@ -49,6 +49,12 @@ export interface ComputedProject {
     status: ItemStatus
     assignee: string | null
   }>
+  // Max due_date across incomplete items (ISO YYYY-MM-DD), null when
+  // no incomplete item has a parseable due date. Used by the import
+  // path to seed projects.target_end_date — this field is intentionally
+  // NOT read by lib/ai/prompts/status-draft.ts so adding it keeps the
+  // Sprint 1 narrative baseline byte-identical.
+  latestDueDate: string | null
 }
 
 export type ParseErrorCode =

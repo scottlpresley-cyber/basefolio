@@ -28,6 +28,7 @@ function baseProject(overrides: Partial<ComputedProject> = {}): ComputedProject 
       { title: 'Add retry logic', status: 'not_started', assignee: null },
       { title: 'Doc rollout', status: 'complete', assignee: 'Alice' },
     ],
+    latestDueDate: null,
     ...overrides,
   }
 }
