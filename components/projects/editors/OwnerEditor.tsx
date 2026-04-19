@@ -32,18 +32,17 @@ export function OwnerEditor({
           <span className="text-sm text-text-disabled">Assign owner</span>
         )
       }
-      renderEditor={({ value, onChange, onCommit, onCancel, id, disabled }) => (
+      renderEditor={({ value, onCommit, onCancel, id, disabled }) => (
         <OwnerSelect
           id={id}
           value={value}
           members={members}
-          onChange={(v) => {
-            // Select commits on choose — no separate Save step feels
-            // right for a one-click interaction. Propagate + commit
-            // in the same turn.
-            onChange(v);
-            requestAnimationFrame(onCommit);
-          }}
+          // Commit the select's new value explicitly — not via
+          // setDraft + onCommit() — so the commit doesn't read a
+          // stale draft closure. Commit-on-change is the correct UX
+          // for a native <select> (it blurs as soon as its menu opens,
+          // so blur-commit would fire before the user picks).
+          onCommit={(next) => onCommit(next)}
           onCancel={onCancel}
           disabled={disabled}
         />
@@ -56,14 +55,14 @@ function OwnerSelect({
   id,
   value,
   members,
-  onChange,
+  onCommit,
   onCancel,
   disabled,
 }: {
   id: string;
   value: string;
   members: OrgMember[];
-  onChange: (v: string) => void;
+  onCommit: (v: string) => void;
   onCancel: () => void;
   disabled: boolean;
 }) {
@@ -79,7 +78,9 @@ function OwnerSelect({
       ref={ref}
       value={value}
       disabled={disabled}
-      onChange={(e) => onChange(e.target.value)}
+      // Native <select> fires change on every pick; commit with the
+      // new value directly rather than routing through draft state.
+      onChange={(e) => onCommit(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.preventDefault();

@@ -19,7 +19,14 @@ import { cn } from "@/lib/utils";
 export type EditableFieldRenderEditorProps<T> = {
   value: T;
   onChange: (next: T) => void;
-  onCommit: () => void;
+  // Editors that commit AFTER draft state has flushed (blur, Enter
+  // after typing) call onCommit() and the closure reads the current
+  // draft. Editors that commit synchronously on change — where the
+  // draft setState hasn't flushed yet — must pass the new value
+  // explicitly: onCommit(nextValue). Without the explicit value, the
+  // commit closure reads a stale draft and the no-op check
+  // short-circuits (the OwnerEditor bug from Prompt 7).
+  onCommit: (overrideValue?: T) => void;
   onCancel: () => void;
   id: string;
   disabled: boolean;
@@ -67,18 +74,21 @@ export function EditableField<T>({
     setEditing(false);
   }
 
-  async function commit() {
+  async function commit(overrideValue?: T) {
     if (committedRef.current) return;
     committedRef.current = true;
+    // Prefer an explicit value from the caller — lets commit-on-change
+    // editors (OwnerSelect) sidestep the setDraft / commit closure race.
+    const target = overrideValue !== undefined ? overrideValue : draft;
     // No-op when the value hasn't changed — avoid a network round-trip
     // when the user clicks out after opening the editor.
-    if (Object.is(draft, value)) {
+    if (Object.is(target, value)) {
       setEditing(false);
       return;
     }
     setSaving(true);
     try {
-      await onSave(draft);
+      await onSave(target);
       setEditing(false);
     } catch {
       // onSave is expected to surface the error via a toast or
