@@ -15,6 +15,20 @@ const MAX_SIZE_BYTES = 10 * 1024 * 1024
 const PREVIEW_ROW_COUNT = 20
 const BUCKET = 'status-draft-uploads'
 
+// MIME allowlist — first-line defense against uploading arbitrary
+// binaries with a .csv name. The two "application/csv" and
+// "text/x-csv" values are alternates some browsers emit for CSVs;
+// the standard is "text/csv". Strictly enforced (no empty-string
+// fallback) until real-user evidence shows otherwise — extension +
+// parseFile rejection stays in place as belt-and-suspenders.
+const ALLOWED_MIME_TYPES = [
+  'text/csv',
+  'application/vnd.ms-excel', // .xls
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+  'application/csv',
+  'text/x-csv',
+] as const
+
 function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100) || 'upload'
 }
@@ -77,6 +91,23 @@ export async function POST(request: Request) {
           code: 'TOO_LARGE',
         },
         { status: 413 },
+      )
+    }
+
+    // MIME allowlist check — rejects before the file hits Storage.
+    // parseFile re-validates via extension and content, but MIME is
+    // the cleanest signal available at the HTTP boundary.
+    if (
+      !(ALLOWED_MIME_TYPES as readonly string[]).includes(file.type)
+    ) {
+      return Response.json(
+        {
+          error: "That file type isn't supported.",
+          detail:
+            'Upload a CSV (.csv) or Excel (.xlsx/.xls) file exported from your project tool.',
+          code: 'UNSUPPORTED_FILE_TYPE',
+        },
+        { status: 400 },
       )
     }
 

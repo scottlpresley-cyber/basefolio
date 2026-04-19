@@ -117,7 +117,11 @@ describe('POST /api/status-draft/upload', () => {
     expect(res.status).toBe(401)
   })
 
-  it('returns 400 UNSUPPORTED_FORMAT for a .txt file', async () => {
+  it('returns 400 UNSUPPORTED_FILE_TYPE for a .txt file (MIME gate catches it)', async () => {
+    // Pre-Prompt 9.1 this test expected UNSUPPORTED_FORMAT from
+    // parseFile. Now the MIME allowlist rejects text/plain before
+    // parseFile runs — same end state (400), earlier gate, stricter
+    // response code.
     authedDefaults()
     const res = await POST(
       buildRequest(
@@ -126,7 +130,7 @@ describe('POST /api/status-draft/upload', () => {
     )
     expect(res.status).toBe(400)
     const body = await res.json()
-    expect(body.code).toBe('UNSUPPORTED_FORMAT')
+    expect(body.code).toBe('UNSUPPORTED_FILE_TYPE')
   })
 
   it('returns 400 EMPTY_FILE when a CSV has headers but no rows', async () => {
@@ -149,6 +153,62 @@ describe('POST /api/status-draft/upload', () => {
     expect(res.status).toBe(500)
     const body = await res.json()
     expect(body.code).toBe('STORAGE_FAILED')
+  })
+
+  it('rejects a file with a dangerous MIME even when the name ends in .csv', async () => {
+    authedDefaults()
+    // Arbitrary binary masquerading as a CSV by filename. MIME
+    // allowlist must catch this BEFORE storage.upload runs.
+    const disguised = new File([Buffer.from('MZ\x90\x00malicious')], 'evil.csv', {
+      type: 'application/x-msdownload',
+    })
+    const res = await POST(buildRequest(disguised))
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.code).toBe('UNSUPPORTED_FILE_TYPE')
+    expect(body.detail).toMatch(/CSV|Excel/i)
+    expect(mockStorageUpload).not.toHaveBeenCalled()
+  })
+
+  it('accepts text/csv MIME and proceeds past the allowlist check', async () => {
+    authedDefaults()
+    // fixtureFile uses type: 'text/csv' — should reach parseFile +
+    // storage.upload as today. Just confirm the flow still lands 200.
+    const res = await POST(buildRequest(fixtureFile('ado-sample.csv')))
+    expect(res.status).toBe(200)
+    expect(mockStorageUpload).toHaveBeenCalledTimes(1)
+  })
+
+  it('accepts the xlsx MIME (spreadsheetml.sheet) and proceeds past the allowlist check', async () => {
+    authedDefaults()
+    // Build a file with the canonical xlsx MIME but garbage bytes.
+    // The allowlist gate must LET THIS THROUGH; parseFile then
+    // rejects downstream with some other ParseError code
+    // (EMPTY_FILE, UNPARSEABLE, etc — which one depends on how the
+    // XLSX reader interprets the bytes). The assertion is "not
+    // blocked at the MIME layer" — downstream rejection is fine.
+    const xlsx = new File([Buffer.from('not a real xlsx')], 'report.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const res = await POST(buildRequest(xlsx))
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    // Any downstream parse code proves the allowlist let us through.
+    expect(body.code).not.toBe('UNSUPPORTED_FILE_TYPE')
+    expect(body.code).not.toBe('NO_FILE')
+  })
+
+  it('rejects BEFORE storage.upload when MIME is disallowed', async () => {
+    // Explicit storage-not-called assertion that mirrors the
+    // ROW_COUNT_EXCEEDED test pattern — the allowlist gate must fire
+    // before we stage anything in Storage.
+    authedDefaults()
+    const disallowed = new File([Buffer.from('foo,bar\n1,2')], 'sneaky.csv', {
+      type: 'application/x-shockwave-flash',
+    })
+    const res = await POST(buildRequest(disallowed))
+    expect(res.status).toBe(400)
+    expect(mockStorageUpload).not.toHaveBeenCalled()
   })
 
   it('returns 400 ROW_COUNT_EXCEEDED when the file has more than 5000 rows', async () => {
