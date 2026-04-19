@@ -5,7 +5,7 @@ Performed as part of Sprint 2 Prompt 9. Not a pen test — a
 checklist review to catch the categories of mistakes that show up
 in SaaS breach postmortems.*
 
-*Performed: 2026-04-19 against commit c1acfd2.*
+*Performed: 2026-04-19 against commit c1acfd2. F-1 resolved in commit 042a78d.*
 
 ## Checklist (applied to each route)
 
@@ -37,19 +37,21 @@ in SaaS breach postmortems.*
 |---|---|---|---|
 | 1 | Authentication | PASS | `supabase.auth.getUser()` at line 25; 401 at line 28-31 |
 | 2 | Org scoping | PASS | `organizationId` read from users-table profile lookup, not body. Used only in storage-key construction |
-| 3 | RLS reliance | PASS | User-scoped client for profile lookup. Service-role client at line 76 used ONLY for Supabase Storage upload to private bucket — documented behavior per architecture §10 |
+| 3 | RLS reliance | PASS | User-scoped client for profile lookup. Service-role client used ONLY for Supabase Storage upload to private bucket — documented behavior per architecture §10 |
 | 4 | Input validation | PASS | FormData + file instance check; size cap enforced before any processing |
 | 5 | Output safety | PASS | Errors return short user-facing messages; `console.error` stays server-side |
-| 6 | File upload validation | **PARTIAL** | Size capped at 10 MB (line 13, 58-64). Extension validated via `parseFile` (throws UNSUPPORTED_FORMAT for anything other than csv/xlsx/xls). **MIME content-type is NOT validated** — mitigating factors below |
+| 6 | File upload validation | **PASS** | Size capped at 10 MB. MIME allowlist added in commit 042a78d — `text/csv`, `application/csv`, `text/x-csv`, `application/vnd.ms-excel`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`. Rejects before `storage.upload`. Extension check retained in `parseFile` as defense-in-depth. |
 | 7 | Claude prompt bounded | N/A | No Claude call |
 | 8 | Dangerous HTML | N/A | No rendering |
-| 9 | Error handling | PASS | Outer try/catch wraps the full handler body; `ParseError` special-cased at line 68-73 |
+| 9 | Error handling | PASS | Outer try/catch wraps the full handler body; `ParseError` special-cased |
 | 10 | CORS/CSP | PASS | Default Next.js same-origin |
 
-**Minor finding — MIME type not validated server-side.** An attacker
-could upload an arbitrary binary blob (say, `evil.csv` that's
-actually an executable) and it would be staged to Supabase Storage
-before `parseFile` rejects it. Mitigating factors:
+### F-1 (resolved) — MIME type was not validated server-side
+
+An attacker could upload an arbitrary binary blob (say, `evil.csv`
+that's actually an executable) and it would be staged to Supabase
+Storage before `parseFile` rejects it. Mitigating factors made the
+concrete risk low:
 
 - The storage path is `${orgId}/${userId}/...` so cross-tenant
   reads are impossible.
@@ -58,12 +60,13 @@ before `parseFile` rejects it. Mitigating factors:
   downstream.
 - 24-hour TTL on the bucket cleans up staged files regardless.
 
-**Proposed fix (not applied in this prompt):** validate
-`file.type` against an allowlist of `text/csv`, `application/vnd.ms-excel`,
-`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
-and reject before `storage.upload`. Keep extension + parse checks
-as belt-and-suspenders — browsers don't always set accurate MIME
-types. One-hour task; awaiting direction.
+**Resolved in commit 042a78d** — MIME allowlist added before
+`storage.upload`. Rejects with 400 `UNSUPPORTED_FILE_TYPE` when the
+uploaded file's `type` is outside the allowlist. Extension +
+`parseFile` rejection retained as defense-in-depth since browsers
+don't always set accurate MIME types. Unit tests cover both the
+reject path (no storage call) and the accept path for `text/csv` +
+`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`.
 
 ---
 
@@ -159,16 +162,14 @@ legitimate clients.
 
 ## Summary
 
-**6 routes audited. 1 PARTIAL finding, 0 FAIL findings.**
+**6 routes audited. 0 FAIL. 0 PARTIAL.**
 
-### Finding F-1 (minor, PARTIAL) — upload route MIME validation
+### Finding F-1 (resolved) — upload route MIME validation
 
 - **Route:** `/api/status-draft/upload`
 - **Check:** #6 File upload validation
-- **Status:** PARTIAL
-- **Risk:** Low. Mitigated by private bucket + org-scoped path + 24h TTL + downstream parse rejection.
-- **Proposed fix:** Add `file.type` allowlist check before `storage.upload`. See route notes for details.
-- **Decision pending:** awaiting direction. Not applied in Prompt 9.
+- **Status:** PASS (was PARTIAL pre-resolution)
+- **Resolved:** commit 042a78d — MIME allowlist check added before `storage.upload`. See route section above for the allowlist values and the defense-in-depth notes.
 
 ### Notable positives
 
