@@ -6,7 +6,15 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database.types'
-import type { Project, NewProject, ProjectPatch, ProjectHealth } from '@/types/app.types'
+import type {
+  Project,
+  NewProject,
+  ProjectPatch,
+  ProjectHealth,
+  ProjectUpdate,
+  NewProjectUpdate,
+} from '@/types/app.types'
+import { displayName } from '@/lib/users/display'
 
 type Client = SupabaseClient<Database>
 
@@ -102,4 +110,33 @@ export async function updateProjectHealth(
 export async function deleteProject(client: Client, id: string): Promise<void> {
   const { error } = await client.from('projects').delete().eq('id', id)
   if (error) throw error
+}
+
+// Inserts a single status update. Returns the row plus the resolved
+// author_name so callers can render it directly in an optimistic
+// feed prepend without a follow-up read.
+//
+// organization_id, project_id, and author_id all live inside `input`
+// — the route handler is responsible for setting them from the auth
+// context and the URL param, never from the request body. The shape
+// of NewProjectUpdate enforces id/created_at/ai_risk_flags can't be
+// supplied at insert time.
+export async function createProjectUpdate(
+  client: Client,
+  input: NewProjectUpdate,
+): Promise<ProjectUpdate> {
+  const { data, error } = await client
+    .from('project_updates')
+    .insert(input)
+    .select('*, author:users!project_updates_author_id_fkey(full_name, email)')
+    .single()
+  if (error) throw error
+
+  const { author, ...rest } = data as typeof data & {
+    author: { full_name: string | null; email: string } | null
+  }
+  return {
+    ...(rest as ProjectUpdate),
+    author_name: author ? displayName(author) : null,
+  }
 }

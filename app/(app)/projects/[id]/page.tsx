@@ -11,7 +11,7 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthContext } from "@/lib/auth/context";
-import { getProject } from "@/lib/projects/queries";
+import { getProject, listProjectUpdates } from "@/lib/projects/queries";
 import { PageShell } from "@/components/layout/PageShell";
 import {
   ProjectDetailLayout,
@@ -20,7 +20,7 @@ import {
 } from "@/components/projects/ProjectDetailLayout";
 import { ProjectDetailHeader } from "@/components/projects/ProjectDetailHeader";
 import { ProjectDetailSidebar } from "@/components/projects/ProjectDetailSidebar";
-import { StatusUpdatesPlaceholder } from "@/components/projects/StatusUpdatesPlaceholder";
+import { ProjectUpdatesSection } from "@/components/projects/ProjectUpdatesSection";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +37,10 @@ export default async function ProjectDetailPage({
   const project = await getProject(supabase, id);
   if (!project) notFound();
 
+  // Fetch updates after the project read so an RLS-hidden project
+  // short-circuits to 404 without an extra round-trip.
+  const updates = await listProjectUpdates(supabase, id);
+
   return (
     <PageShell
       title={project.name}
@@ -45,7 +49,7 @@ export default async function ProjectDetailPage({
       <ProjectDetailLayout>
         <ProjectDetailMain>
           <ProjectDetailHeader project={project} />
-          <StatusUpdatesPlaceholder />
+          <ProjectUpdatesSection projectId={id} initialUpdates={updates} />
         </ProjectDetailMain>
         <ProjectDetailSidebarCol>
           <ProjectDetailSidebar project={project} />

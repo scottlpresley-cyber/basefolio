@@ -8,7 +8,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database.types'
-import type { Project, ProjectStatus } from '@/types/app.types'
+import type { Project, ProjectStatus, ProjectUpdate } from '@/types/app.types'
 import { displayName } from '@/lib/users/display'
 
 type Client = SupabaseClient<Database>
@@ -113,6 +113,39 @@ export async function getProjectsBySourceReport(
     .order('created_at', { ascending: false })
   if (error) throw error
   return data ?? []
+}
+
+// Returns every status update for a project, newest first, with the
+// author's display name resolved through the same displayName helper
+// used by listProjects's owner column. RLS scopes the join — an
+// author from a different org would surface as author_name: null
+// rather than leaking their name.
+//
+// No pagination in MVP. Plan limits cap a Starter org at 15 active
+// projects, and a typical update cadence is weekly — even after a
+// year of heavy use a single project's feed is ~52 rows. If we need
+// pagination later, the same shape (newest first) supports cursor.
+export async function listProjectUpdates(
+  client: Client,
+  projectId: string,
+): Promise<ProjectUpdate[]> {
+  const { data, error } = await client
+    .from('project_updates')
+    .select('*, author:users!project_updates_author_id_fkey(full_name, email)')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  if (!data) return []
+
+  return data.map((row) => {
+    const { author, ...rest } = row as typeof row & {
+      author: { full_name: string | null; email: string } | null
+    }
+    return {
+      ...(rest as ProjectUpdate),
+      author_name: author ? displayName(author) : null,
+    }
+  })
 }
 
 // Used by the plan-limit gate before createProject. count: 'exact' +

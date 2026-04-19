@@ -12,6 +12,7 @@ import {
   getProject,
   getProjectsBySourceReport,
   countActiveProjects,
+  listProjectUpdates,
 } from '@/lib/projects/queries'
 import { updateProjectHealth } from '@/lib/projects/mutations'
 import { enforceProjectLimit, PlanLimitError } from '@/lib/projects/plan-limits'
@@ -259,6 +260,86 @@ describe('countActiveProjects', () => {
     expect(q.select).toHaveBeenCalledWith('*', { count: 'exact', head: true })
     expect(q.eq).toHaveBeenCalledWith('status', 'active')
     expect(n).toBe(7)
+  })
+})
+
+describe('listProjectUpdates', () => {
+  test('joins author + scopes by project_id + orders newest first', async () => {
+    const q = makeQuery({
+      data: [
+        {
+          id: 'u1',
+          project_id: 'p1',
+          health: 'green',
+          summary: 'first',
+          author: { full_name: 'Scott Presley', email: 'scott@example.com' },
+        },
+      ],
+      error: null,
+    })
+    const client = makeClient({ project_updates: q })
+
+    const rows = await listProjectUpdates(client, 'p1')
+
+    expect(q.select).toHaveBeenCalledWith(
+      '*, author:users!project_updates_author_id_fkey(full_name, email)',
+    )
+    expect(q.eq).toHaveBeenCalledWith('project_id', 'p1')
+    expect(q.order).toHaveBeenCalledWith('created_at', { ascending: false })
+    expect(rows).toEqual([
+      {
+        id: 'u1',
+        project_id: 'p1',
+        health: 'green',
+        summary: 'first',
+        author_name: 'Scott Presley',
+      },
+    ])
+  })
+
+  test('falls back to email local-part when author full_name is null', async () => {
+    const q = makeQuery({
+      data: [
+        {
+          id: 'u2',
+          project_id: 'p1',
+          health: 'green',
+          summary: 's',
+          author: { full_name: null, email: 'nameless@example.com' },
+        },
+      ],
+      error: null,
+    })
+    const client = makeClient({ project_updates: q })
+
+    const rows = await listProjectUpdates(client, 'p1')
+    expect(rows[0].author_name).toBe('nameless')
+  })
+
+  test('author_name is null when author row is unreadable (RLS-hidden)', async () => {
+    const q = makeQuery({
+      data: [{ id: 'u3', project_id: 'p1', health: 'green', summary: 's', author: null }],
+      error: null,
+    })
+    const client = makeClient({ project_updates: q })
+
+    const rows = await listProjectUpdates(client, 'p1')
+    expect(rows[0].author_name).toBeNull()
+  })
+
+  test('returns [] when Supabase returns null data', async () => {
+    const q = makeQuery({ data: null, error: null })
+    const client = makeClient({ project_updates: q })
+    const rows = await listProjectUpdates(client, 'p1')
+    expect(rows).toEqual([])
+  })
+
+  test('throws on DB error', async () => {
+    const q = makeQuery({ data: null, error: { message: 'pg exploded', code: 'X' } })
+    const client = makeClient({ project_updates: q })
+    await expect(listProjectUpdates(client, 'p1')).rejects.toMatchObject({
+      message: 'pg exploded',
+    })
   })
 })
 
